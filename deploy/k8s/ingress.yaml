@@ -1,0 +1,20 @@
+# Ingress 는 클러스터 바깥의 HTTP 요청을 안쪽 Service 로 라우팅한다.
+# ingress-nginx 컨트롤러가 이 규칙을 읽어 실제 트래픽을 넘긴다.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ordering
+  namespace: shop
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: localhost
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: ordering
+                port:
+                  number: 80

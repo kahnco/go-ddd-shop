@@ -1,0 +1,42 @@
+# 주문 서비스. HTTP 를 받는 서비스라 Deployment + Service 로 굴린다.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ordering
+  namespace: shop
+spec:
+  replicas: 2 # 파드 2개. 하나가 죽어도 트래픽이 끊기지 않는다.
+  selector:
+    matchLabels:
+      app: ordering
+  template:
+    metadata:
+      labels:
+        app: ordering
+    spec:
+      containers:
+        - name: ordering
+          image: go-ddd-shop/ordering:part-6
+          # kind 에 직접 로드한 이미지라 레지스트리에서 당기지 않는다.
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+          env:
+            - name: NATS_URL
+              value: "nats://nats:4222" # 같은 네임스페이스의 nats Service
+          resources:
+            requests: { cpu: "50m", memory: "32Mi" }
+            limits: { cpu: "250m", memory: "128Mi" }
+---
+# ordering Service: 2개 파드 앞에 하나의 안정적인 진입점을 두고 트래픽을 분산한다.
+apiVersion: v1
+kind: Service
+metadata:
+  name: ordering
+  namespace: shop
+spec:
+  selector:
+    app: ordering
+  ports:
+    - port: 80 # 서비스는 80 으로 받아서
+      targetPort: 8080 # 파드의 8080 으로 넘긴다

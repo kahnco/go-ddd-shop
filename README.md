@@ -71,6 +71,35 @@ curl -X POST localhost:8080/orders \
 > `NATS_URL` 없이 `go run ./cmd/ordering` 만 띄우면, 발행 어댑터가 로그 발행으로 대체돼
 > 브로커 없이도 단독 실행됩니다(포트/어댑터 교체의 이점).
 
+## 쿠버네티스(kind)에 배포 (part-6 기준)
+
+```bash
+# 1) 로컬 클러스터 (80 포트를 호스트로 노출)
+kind create cluster --name shop --config deploy/kind/cluster.yaml
+
+# 2) 이미지 빌드 후 kind 로 로드
+docker build --build-arg SERVICE=ordering  -t go-ddd-shop/ordering:part-6  .
+docker build --build-arg SERVICE=inventory -t go-ddd-shop/inventory:part-6 .
+kind load docker-image go-ddd-shop/ordering:part-6 go-ddd-shop/inventory:part-6 --name shop
+
+# 3) Ingress 컨트롤러 + 앱 매니페스트
+kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.11.3/deploy/static/provider/kind/deploy.yaml
+kubectl wait -n ingress-nginx --for=condition=ready pod \
+  --selector=app.kubernetes.io/component=controller --timeout=120s
+kubectl apply -f deploy/k8s/
+
+# 4) Ingress 로 주문 넣기
+curl -X POST http://localhost/orders \
+  -d '{"customer_id":"c1","items":[{"product_id":"prod-A","quantity":2,"unit_price":1000}]}'
+kubectl logs -n shop deploy/inventory   # 재고 서비스가 이벤트를 소비한 로그
+
+# 정리
+kind delete cluster --name shop
+```
+
+> ⚠️ ordering 은 replica 2개인데 저장소가 인메모리라, POST 한 주문을 GET 하면 다른 파드로
+> 라우팅돼 404 가 섞일 수 있습니다. 상태를 파드 밖(공유 저장소)으로 빼는 건 7편에서 다룹니다.
+
 ## 라이선스
 
 MIT

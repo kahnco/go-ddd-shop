@@ -1,0 +1,27 @@
+# 재고 서비스. 이벤트 소비자라 HTTP 를 열지 않으니 Service 가 없다 —
+# 아무도 이 파드로 "요청"하지 않고, 스스로 브로커를 구독할 뿐이다.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: inventory
+  namespace: shop
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: inventory
+  template:
+    metadata:
+      labels:
+        app: inventory
+    spec:
+      containers:
+        - name: inventory
+          image: go-ddd-shop/inventory:part-6
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: NATS_URL
+              value: "nats://nats:4222"
+          resources:
+            requests: { cpu: "50m", memory: "32Mi" }
+            limits: { cpu: "250m", memory: "128Mi" }

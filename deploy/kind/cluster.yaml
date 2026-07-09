@@ -1,0 +1,20 @@
+# kind 클러스터 설정. 컨트롤플레인 노드 하나짜리 로컬 클러스터를 만든다.
+# Ingress 를 로컬에서 쓰려고, 노드의 80/443 포트를 호스트로 노출한다.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+nodes:
+  - role: control-plane
+    # ingress-nginx 가 이 노드에 스케줄되도록 라벨을 단다.
+    kubeadmConfigPatches:
+      - |
+        kind: InitConfiguration
+        nodeRegistration:
+          kubeletExtraArgs:
+            node-labels: "ingress-ready=true"
+    extraPortMappings:
+      - containerPort: 80
+        hostPort: 80
+        protocol: TCP
+      - containerPort: 443
+        hostPort: 443
+        protocol: TCP
