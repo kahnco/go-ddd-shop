@@ -1,0 +1,32 @@
+# 설정과 비밀을 코드·이미지에서 분리한다(12-factor).
+# 비밀이 아닌 설정 → ConfigMap, 비밀(비밀번호·접속 문자열) → Secret.
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: shop-config
+  namespace: shop
+data:
+  NATS_URL: "nats://nats:4222"
+---
+# ⚠️ 데모용. 실서비스에서는 평문 Secret 을 git 에 커밋하지 않는다 —
+# Sealed Secrets·SOPS·External Secrets 등으로 암호화하거나 외부 볼트에서 주입한다.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: db-credentials
+  namespace: shop
+type: Opaque
+stringData:
+  POSTGRES_USER: shop
+  POSTGRES_PASSWORD: secret
+  POSTGRES_DB: shop
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: ordering-secret
+  namespace: shop
+type: Opaque
+stringData:
+  DATABASE_URL: "postgres://shop:secret@postgres:5432/shop?sslmode=disable"

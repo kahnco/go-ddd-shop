@@ -1,0 +1,22 @@
+# HorizontalPodAutoscaler — 부하에 따라 ordering 파드 수를 자동으로 늘리고 줄인다.
+# CPU 사용률이 평균 70% 를 넘으면 파드를 늘리고, 한가해지면 최소치로 되돌린다.
+# 동작하려면 클러스터에 metrics-server 가 있어야 한다.
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: ordering
+  namespace: shop
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: ordering
+  minReplicas: 2
+  maxReplicas: 5
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70

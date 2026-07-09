@@ -17,6 +17,7 @@ func NewOrderLine(productID ProductID, quantity Quantity, unitPrice Money) Order
 func (l OrderLine) Subtotal() Money      { return l.unitPrice.Times(l.quantity) }
 func (l OrderLine) ProductID() ProductID { return l.productID }
 func (l OrderLine) Quantity() Quantity   { return l.quantity }
+func (l OrderLine) UnitPrice() Money     { return l.unitPrice }
 
 // Order 는 주문 애그리거트. 애그리거트 루트로서 OrderLine 들을 품고,
 // 불변식(항목 1개 이상, 총액=소계 합, 정해진 상태 전이)을 스스로 지킨다.
@@ -48,6 +49,14 @@ func PlaceOrder(id OrderID, customerID CustomerID, lines []OrderLine) (*Order, e
 	}
 	o.record(OrderPlaced{OrderID: id, CustomerID: customerID, Total: o.Total(), Items: items})
 	return o, nil
+}
+
+// ReconstituteOrder 는 저장소가 "이미 존재하는" 주문을 메모리로 되살릴 때 쓴다.
+// PlaceOrder(팩토리)와 결정적으로 다른 점: 이벤트를 하나도 발생시키지 않는다.
+// 이건 지금 새로 일어나는 일이 아니라, 과거에 저장된 사실을 복원하는 것이기 때문이다.
+// (이벤트를 또 내면 재고가 다시 예약되는 등 끔찍한 중복이 생긴다.)
+func ReconstituteOrder(id OrderID, customerID CustomerID, lines []OrderLine, status OrderStatus) *Order {
+	return &Order{id: id, customerID: customerID, lines: lines, status: status}
 }
 
 // Total 은 모든 항목 소계의 합. 저장된 값이 아니라 항상 항목에서 계산해,

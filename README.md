@@ -71,34 +71,42 @@ curl -X POST localhost:8080/orders \
 > `NATS_URL` 없이 `go run ./cmd/ordering` 만 띄우면, 발행 어댑터가 로그 발행으로 대체돼
 > 브로커 없이도 단독 실행됩니다(포트/어댑터 교체의 이점).
 
-## 쿠버네티스(kind)에 배포 (part-6 기준)
+## 쿠버네티스(kind)에 배포 (part-7 기준)
 
 ```bash
 # 1) 로컬 클러스터 (80 포트를 호스트로 노출)
 kind create cluster --name shop --config deploy/kind/cluster.yaml
 
 # 2) 이미지 빌드 후 kind 로 로드
-docker build --build-arg SERVICE=ordering  -t go-ddd-shop/ordering:part-6  .
-docker build --build-arg SERVICE=inventory -t go-ddd-shop/inventory:part-6 .
-kind load docker-image go-ddd-shop/ordering:part-6 go-ddd-shop/inventory:part-6 --name shop
+docker build --build-arg SERVICE=ordering  -t go-ddd-shop/ordering:part-7  .
+docker build --build-arg SERVICE=inventory -t go-ddd-shop/inventory:part-7 .
+kind load docker-image go-ddd-shop/ordering:part-7 go-ddd-shop/inventory:part-7 --name shop
 
-# 3) Ingress 컨트롤러 + 앱 매니페스트
+# 3) Ingress 컨트롤러 + metrics-server(HPA용) + 앱 매니페스트
 kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.11.3/deploy/static/provider/kind/deploy.yaml
+kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
+kubectl patch -n kube-system deployment metrics-server --type=json \
+  -p='[{"op":"add","path":"/spec/template/spec/containers/0/args/-","value":"--kubelet-insecure-tls"}]'
 kubectl wait -n ingress-nginx --for=condition=ready pod \
   --selector=app.kubernetes.io/component=controller --timeout=120s
-kubectl apply -f deploy/k8s/
+kubectl apply -f deploy/k8s/namespace.yaml && kubectl apply -f deploy/k8s/
 
-# 4) Ingress 로 주문 넣기
-curl -X POST http://localhost/orders \
-  -d '{"customer_id":"c1","items":[{"product_id":"prod-A","quantity":2,"unit_price":1000}]}'
-kubectl logs -n shop deploy/inventory   # 재고 서비스가 이벤트를 소비한 로그
+# 4) 주문을 만들고, 같은 주문을 여러 번 조회 → 이제 replica가 Postgres를 공유해 항상 200
+OID=$(curl -s -X POST http://localhost/orders \
+  -d '{"customer_id":"c1","items":[{"product_id":"prod-A","quantity":2,"unit_price":1000}]}' \
+  | sed -E 's/.*"order_id":"([^"]+)".*/\1/')
+curl -s http://localhost/orders/$OID
+
+# 5) 부하를 주면 HPA가 ordering 파드를 자동으로 늘린다
+kubectl get hpa -n shop -w
 
 # 정리
 kind delete cluster --name shop
 ```
 
-> ⚠️ ordering 은 replica 2개인데 저장소가 인메모리라, POST 한 주문을 GET 하면 다른 파드로
-> 라우팅돼 404 가 섞일 수 있습니다. 상태를 파드 밖(공유 저장소)으로 빼는 건 7편에서 다룹니다.
+7편에서 상태를 파드 밖 **PostgreSQL(StatefulSet·PVC)** 로 빼서 6편의 404 문제를 해결했습니다.
+설정은 **ConfigMap**(NATS_URL), 비밀은 **Secret**(DATABASE_URL)으로 분리하고, **probe**(/healthz·/readyz)와
+**HPA**(CPU 70% 기준 2→5 파드)를 붙였습니다.
 
 ## 라이선스
 
