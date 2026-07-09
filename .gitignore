@@ -1,0 +1,28 @@
+# 바이너리
+/bin/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# 테스트/커버리지
+*.test
+*.out
+coverage.*
+
+# Go 작업 파일
+go.work.sum
+
+# 환경/시크릿
+.env
+.env.local
+*.local
+
+# 에디터/OS
+.idea/
+.vscode/
+.DS_Store
+
+# 로컬 도구 산출물
+/tmp/
