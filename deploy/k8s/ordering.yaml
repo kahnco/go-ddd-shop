@@ -13,10 +13,15 @@ spec:
     metadata:
       labels:
         app: ordering
+      annotations:
+        # 프로메테우스가 이 파드의 /metrics 를 스크레이프하도록 알린다.
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/metrics"
     spec:
       containers:
         - name: ordering
-          image: go-ddd-shop/ordering:part-7
+          image: go-ddd-shop/ordering:part-8
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8080

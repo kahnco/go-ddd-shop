@@ -5,6 +5,7 @@ import (
 
 	"github.com/kahnco/go-ddd-shop/internal/ordering/domain"
 	"github.com/kahnco/go-ddd-shop/internal/platform/eventbus"
+	"github.com/kahnco/go-ddd-shop/internal/platform/telemetry"
 )
 
 // NatsEventPublisher 는 app.EventPublisher 포트를 NATS 발행으로 구현한 어댑터.
@@ -19,16 +20,21 @@ func NewNatsEventPublisher(bus *eventbus.Bus, prefix string) *NatsEventPublisher
 	return &NatsEventPublisher{bus: bus, prefix: prefix}
 }
 
-func (p *NatsEventPublisher) Publish(_ context.Context, events ...domain.DomainEvent) error {
+func (p *NatsEventPublisher) Publish(ctx context.Context, events ...domain.DomainEvent) error {
 	for _, e := range events {
 		subject := p.prefix + "." + e.EventName() // ordering.order.placed
 		env, err := eventbus.NewEnvelope(e.EventName(), e)
 		if err != nil {
 			return err
 		}
+		// 이 요청의 상관 ID 를 이벤트에 실어, 소비 서비스까지 흐름을 잇는다.
+		if cid := telemetry.CorrelationID(ctx); cid != "" {
+			env.Meta = map[string]string{telemetry.MetaCorrelationID: cid}
+		}
 		if err := p.bus.Publish(subject, env); err != nil {
 			return err
 		}
+		telemetry.RecordEventPublished(e.EventName())
 	}
 	return nil
 }

@@ -1,0 +1,43 @@
+name: CI
+
+# 원래 CI 는 아래처럼 main 푸시·PR 마다 자동으로 돈다.
+# 이 튜토리얼 리포에서는 불필요한 실행을 피하려 "수동 실행(workflow_dispatch)"만 켜 두었다.
+# 실제 프로젝트에서는 아래 push/pull_request 주석을 풀어 자동화한다.
+on:
+  workflow_dispatch:
+  # push:
+  #   branches: [main]
+  # pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+          cache-dependency-path: go.sum
+
+      - name: 포맷 검사(gofmt)
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "gofmt 가 필요한 파일:"; echo "$unformatted"; exit 1
+          fi
+
+      - name: 정적 검사(go vet)
+        run: go vet ./...
+
+      # ubuntu 러너에는 도커가 있어, testcontainers(Postgres)·임베디드 NATS 통합 테스트까지 그대로 돈다.
+      - name: 테스트(go test)
+        run: go test -race ./...
+
+  images:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: ordering 이미지 빌드
+        run: docker build --build-arg SERVICE=ordering -t ordering:ci .
+      - name: inventory 이미지 빌드
+        run: docker build --build-arg SERVICE=inventory -t inventory:ci .

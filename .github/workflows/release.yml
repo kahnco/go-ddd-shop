@@ -1,0 +1,41 @@
+name: Release
+
+# 원래 Release 는 part-N 태그를 밀면 두 서비스 이미지를 빌드해 GHCR 에 올린다.
+# 이 튜토리얼 리포에서는 실제 푸시(과금은 없지만 실행 자체)를 피하려 "수동 실행"만 켜 두었다.
+# 실제 프로젝트에서는 아래 push.tags 주석을 풀어 태그 기반 릴리스를 자동화한다.
+# GitOps 파이프라인이라면, 올린 이미지 태그를 배포 매니페스트 리포에 반영하는 단계가 이어진다.
+on:
+  workflow_dispatch:
+  # push:
+  #   tags: ["part-*"]
+
+permissions:
+  contents: read
+  packages: write # GHCR 에 푸시하려면 필요
+
+jobs:
+  push-images:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        service: [ordering, inventory]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: GHCR 로그인
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 빌드 & 푸시
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          build-args: |
+            SERVICE=${{ matrix.service }}
+          push: true
+          tags: |
+            ghcr.io/kahnco/go-ddd-shop/${{ matrix.service }}:${{ github.ref_name }}
+            ghcr.io/kahnco/go-ddd-shop/${{ matrix.service }}:latest

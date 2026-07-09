@@ -6,10 +6,13 @@ import "encoding/json"
 
 // Envelope 는 브로커로 오가는 이벤트의 겉포장.
 // Name 으로 "무슨 이벤트인지" 구분하고, Data 에 도메인 이벤트의 JSON 을 담는다.
+// Meta 에는 상관 ID 처럼 도메인과 무관한 횡단 관심사(cross-cutting)를 싣는다 —
+// 이 덕에 하나의 주문 흐름을 여러 서비스에 걸쳐 같은 ID 로 추적할 수 있다.
 // 이 봉투 구조가 컨텍스트 간의 공통 계약이다(도메인 타입은 공유하지 않는다).
 type Envelope struct {
-	Name string          `json:"name"`
-	Data json.RawMessage `json:"data"`
+	Name string            `json:"name"`
+	Data json.RawMessage   `json:"data"`
+	Meta map[string]string `json:"meta,omitempty"`
 }
 
 // NewEnvelope 는 payload 를 JSON 으로 직렬화해 봉투에 담는다.

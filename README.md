@@ -71,16 +71,16 @@ curl -X POST localhost:8080/orders \
 > `NATS_URL` 없이 `go run ./cmd/ordering` 만 띄우면, 발행 어댑터가 로그 발행으로 대체돼
 > 브로커 없이도 단독 실행됩니다(포트/어댑터 교체의 이점).
 
-## 쿠버네티스(kind)에 배포 (part-7 기준)
+## 쿠버네티스(kind)에 배포 (part-8 기준)
 
 ```bash
 # 1) 로컬 클러스터 (80 포트를 호스트로 노출)
 kind create cluster --name shop --config deploy/kind/cluster.yaml
 
 # 2) 이미지 빌드 후 kind 로 로드
-docker build --build-arg SERVICE=ordering  -t go-ddd-shop/ordering:part-7  .
-docker build --build-arg SERVICE=inventory -t go-ddd-shop/inventory:part-7 .
-kind load docker-image go-ddd-shop/ordering:part-7 go-ddd-shop/inventory:part-7 --name shop
+docker build --build-arg SERVICE=ordering  -t go-ddd-shop/ordering:part-8  .
+docker build --build-arg SERVICE=inventory -t go-ddd-shop/inventory:part-8 .
+kind load docker-image go-ddd-shop/ordering:part-8 go-ddd-shop/inventory:part-8 --name shop
 
 # 3) Ingress 컨트롤러 + metrics-server(HPA용) + 앱 매니페스트
 kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.11.3/deploy/static/provider/kind/deploy.yaml
@@ -107,6 +107,19 @@ kind delete cluster --name shop
 7편에서 상태를 파드 밖 **PostgreSQL(StatefulSet·PVC)** 로 빼서 6편의 404 문제를 해결했습니다.
 설정은 **ConfigMap**(NATS_URL), 비밀은 **Secret**(DATABASE_URL)으로 분리하고, **probe**(/healthz·/readyz)와
 **HPA**(CPU 70% 기준 2→5 파드)를 붙였습니다.
+
+8편에서 **관찰성** 을 더했습니다 — 상관 ID(`X-Correlation-ID`)를 이벤트에 실어 주문 하나를
+주문→재고 서비스에 걸쳐 같은 ID 로 추적하고, `/metrics`(Prometheus)로 요청·이벤트 수를 노출합니다.
+`.github/workflows` 에 **CI/CD** 파이프라인(포맷·정적검사·테스트·이미지 빌드, 태그 시 GHCR 푸시)이
+있습니다. 튜토리얼 리포라 불필요한 실행을 피하려 **수동 실행(workflow_dispatch)** 으로 두었습니다 —
+실제 프로젝트에서는 주석 처리된 `push`/`pull_request` 트리거를 켜 자동화합니다.
+
+```bash
+# 관찰성 확인
+curl http://localhost/metrics                          # 프로메테우스 메트릭
+kubectl logs -n shop deploy/ordering  | grep correlation_id   # 주문 서비스 로그
+kubectl logs -n shop deploy/inventory | grep <그 correlation_id>  # 같은 ID 가 재고 서비스에도
+```
 
 ## 라이선스
 

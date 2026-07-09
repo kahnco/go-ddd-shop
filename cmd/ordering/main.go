@@ -11,6 +11,7 @@ import (
 	"github.com/kahnco/go-ddd-shop/internal/ordering/domain"
 	"github.com/kahnco/go-ddd-shop/internal/ordering/infra"
 	"github.com/kahnco/go-ddd-shop/internal/platform/eventbus"
+	"github.com/kahnco/go-ddd-shop/internal/platform/telemetry"
 )
 
 // main 은 "조립 루트(composition root)".
@@ -57,10 +58,14 @@ func main() {
 	mux := http.NewServeMux()
 	api.NewOrderHandler(svc).Register(mux)
 	api.RegisterHealth(mux, ready)
+	mux.Handle("GET /metrics", telemetry.MetricsHandler()) // 프로메테우스 스크레이프 대상
+
+	// 미들웨어로 감싸 상관 ID·접근 로그·HTTP 메트릭을 모든 요청에 적용한다.
+	handler := telemetry.Middleware(logger, mux)
 
 	addr := ":8080"
 	logger.Info("ordering service 시작", "addr", addr)
-	if err := http.ListenAndServe(addr, mux); err != nil {
+	if err := http.ListenAndServe(addr, handler); err != nil {
 		logger.Error("서버 종료", "err", err)
 		os.Exit(1)
 	}

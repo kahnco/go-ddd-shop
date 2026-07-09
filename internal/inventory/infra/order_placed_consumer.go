@@ -6,6 +6,7 @@ import (
 
 	"github.com/kahnco/go-ddd-shop/internal/inventory/app"
 	"github.com/kahnco/go-ddd-shop/internal/platform/eventbus"
+	"github.com/kahnco/go-ddd-shop/internal/platform/telemetry"
 )
 
 // OrderPlacedConsumer 는 주문 컨텍스트의 order.placed 이벤트를 받아
@@ -32,9 +33,16 @@ type orderPlacedPayload struct {
 
 // Handle 은 봉투 하나를 처리한다. eventbus.Handler 시그니처에 맞는다.
 func (c *OrderPlacedConsumer) Handle(env eventbus.Envelope) error {
+	// 발행 서비스가 실어 보낸 상관 ID 를 이어받는다. 이 ID 로 로그를 남기면,
+	// 주문 서비스의 로그와 같은 ID 로 하나의 주문 흐름을 꿰어 볼 수 있다.
+	cid := env.Meta[telemetry.MetaCorrelationID]
+	ctx := telemetry.WithCorrelationID(context.Background(), cid)
+	log := c.log.With("correlation_id", cid)
+
 	var p orderPlacedPayload
 	if err := env.Into(&p); err != nil {
-		c.log.Error("order.placed 디코딩 실패", "err", err)
+		log.Error("order.placed 디코딩 실패", "err", err)
+		telemetry.RecordEventConsumed("order.placed", "decode_error")
 		return err
 	}
 
@@ -43,10 +51,12 @@ func (c *OrderPlacedConsumer) Handle(env eventbus.Envelope) error {
 		cmd.Items = append(cmd.Items, app.ReservationItem{ProductID: it.ProductID, Quantity: it.Quantity})
 	}
 
-	if err := c.svc.OnOrderPlaced(context.Background(), cmd); err != nil {
-		c.log.Error("재고 예약 처리 실패", "order", p.OrderID, "err", err)
+	if err := c.svc.OnOrderPlaced(ctx, cmd); err != nil {
+		log.Error("재고 예약 처리 실패", "order", p.OrderID, "err", err)
+		telemetry.RecordEventConsumed("order.placed", "error")
 		return err
 	}
-	c.log.Info("order.placed 처리 완료", "order", p.OrderID, "items", len(p.Items))
+	log.Info("order.placed 처리 완료", "order", p.OrderID, "items", len(p.Items))
+	telemetry.RecordEventConsumed("order.placed", "ok")
 	return nil
 }

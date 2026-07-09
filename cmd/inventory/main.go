@@ -2,6 +2,7 @@ package main
 
 import (
 	"log/slog"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -9,10 +10,12 @@ import (
 	"github.com/kahnco/go-ddd-shop/internal/inventory/app"
 	"github.com/kahnco/go-ddd-shop/internal/inventory/infra"
 	"github.com/kahnco/go-ddd-shop/internal/platform/eventbus"
+	"github.com/kahnco/go-ddd-shop/internal/platform/telemetry"
 )
 
 // inventory 서비스: 주문 컨텍스트의 order.placed 를 구독해 재고를 예약하는 소비자.
-// HTTP 를 열지 않는다 — 입구가 오직 이벤트다. 이것이 EDD 서비스의 전형적인 모습이다.
+// 비즈니스 입구는 오직 이벤트지만, 관찰성(/metrics)과 probe(/healthz)를 위해
+// 최소한의 HTTP 서버는 연다.
 func main() {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 
@@ -38,6 +41,20 @@ func main() {
 		os.Exit(1)
 	}
 	logger.Info("inventory 서비스 시작 — order.placed 구독 중", "nats", url)
+
+	// 관찰성·probe 용 최소 HTTP 서버(별도 고루틴).
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("ok"))
+	})
+	mux.Handle("GET /metrics", telemetry.MetricsHandler())
+	httpAddr := envOr("HTTP_ADDR", ":8080")
+	go func() {
+		if err := http.ListenAndServe(httpAddr, mux); err != nil {
+			logger.Error("헬스/메트릭 서버 종료", "err", err)
+		}
+	}()
 
 	// 이벤트 소비자는 신호가 올 때까지 그냥 떠 있는다.
 	stop := make(chan os.Signal, 1)
