@@ -3,6 +3,7 @@ package eventbus
 import (
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/nats-io/nats.go"
 )
@@ -14,8 +15,17 @@ type Bus struct {
 }
 
 // Connect 는 NATS 서버에 연결한다. url 예: nats://localhost:4222
+//
+// RetryOnFailedConnect 로 서버가 아직 안 떠 있어도 즉시 실패하지 않고 배경에서 재접속한다.
+// 컨테이너/쿠버네티스에서는 기동 순서를 보장하기 어려우니(브로커가 늦게 뜰 수 있다),
+// 앱이 크래시 루프에 빠지지 않고 브로커를 기다리게 하는 편이 견고하다.
 func Connect(url string) (*Bus, error) {
-	nc, err := nats.Connect(url, nats.Name("go-ddd-shop"))
+	nc, err := nats.Connect(url,
+		nats.Name("go-ddd-shop"),
+		nats.RetryOnFailedConnect(true),
+		nats.MaxReconnects(-1),
+		nats.ReconnectWait(time.Second),
+	)
 	if err != nil {
 		return nil, fmt.Errorf("nats 연결: %w", err)
 	}

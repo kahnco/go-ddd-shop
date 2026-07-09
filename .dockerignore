@@ -1,0 +1,8 @@
+# 빌드 컨텍스트에서 뺄 것들 — 이미지·전송을 가볍게, 캐시를 안정적으로.
+.git
+.gitignore
+.dockerignore
+Dockerfile
+compose.yaml
+README.md
+docs
