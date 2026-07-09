@@ -31,3 +31,13 @@ services:
       NATS_URL: nats://nats:4222
     depends_on:
       - nats
+
+  payment:
+    build:
+      context: .
+      args:
+        SERVICE: payment
+    environment:
+      NATS_URL: nats://nats:4222
+    depends_on:
+      - nats

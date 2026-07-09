@@ -25,6 +25,7 @@ func NewOrderPlacedConsumer(svc *app.ReservationService, log *slog.Logger) *Orde
 // 두 컨텍스트는 오직 이 JSON 계약으로만 연결된다(부패 방지 계층, ACL 의 축소판).
 type orderPlacedPayload struct {
 	OrderID string `json:"order_id"`
+	Total   int64  `json:"total"`
 	Items   []struct {
 		ProductID string `json:"product_id"`
 		Quantity  int    `json:"quantity"`
@@ -46,7 +47,7 @@ func (c *OrderPlacedConsumer) Handle(env eventbus.Envelope) error {
 		return err
 	}
 
-	cmd := app.ReserveForOrderCommand{OrderID: p.OrderID}
+	cmd := app.ReserveForOrderCommand{OrderID: p.OrderID, Amount: p.Total}
 	for _, it := range p.Items {
 		cmd.Items = append(cmd.Items, app.ReservationItem{ProductID: it.ProductID, Quantity: it.Quantity})
 	}

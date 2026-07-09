@@ -10,6 +10,7 @@ import (
 // 주문 컨텍스트의 OrderPlaced 이벤트에서 번역돼 들어온다.
 type ReserveForOrderCommand struct {
 	OrderID string
+	Amount  int64 // 주문 총액. 예약 성공 시 결제 컨텍스트로 그대로 전달한다.
 	Items   []ReservationItem
 }
 
@@ -64,7 +65,7 @@ func (s *ReservationService) OnOrderPlaced(ctx context.Context, cmd ReserveForOr
 		done = append(done, reserved{item: item, qty: it.Quantity})
 	}
 
-	return s.publisher.Publish(ctx, domain.StockReserved{OrderID: domain.OrderID(cmd.OrderID)})
+	return s.publisher.Publish(ctx, domain.StockReserved{OrderID: domain.OrderID(cmd.OrderID), Amount: cmd.Amount})
 }
 
 func (s *ReservationService) publishFailed(ctx context.Context, orderID string, cause error) error {

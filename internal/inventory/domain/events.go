@@ -6,9 +6,11 @@ type DomainEvent interface {
 	EventName() string
 }
 
-// StockReserved — 주문의 모든 항목 재고가 예약됨. 결제 컨텍스트가 이어받을 수 있다.
+// StockReserved — 주문의 모든 항목 재고가 예약됨. 결제 컨텍스트가 이어받아 결제한다.
+// 결제가 청구할 금액(Amount)을 실어 보낸다 — 결제는 주문을 되묻지 않아도 된다.
 type StockReserved struct {
 	OrderID OrderID `json:"order_id"`
+	Amount  int64   `json:"amount"`
 }
 
 func (StockReserved) EventName() string { return "stock.reserved" }

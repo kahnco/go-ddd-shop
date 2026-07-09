@@ -1,27 +1,27 @@
-# 재고 서비스. 비즈니스 입구는 이벤트뿐이지만, 관찰성(/metrics)·probe(/healthz)용
-# 최소 HTTP 서버를 8080 에 연다.
+# 결제 서비스. 재고 예약(stock.reserved)을 구독해 결제를 처리하는 소비자.
+# 재고 서비스처럼 비즈니스 입구는 이벤트뿐이라, HTTP 는 관찰성·probe 용으로만 연다.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: inventory
+  name: payment
   namespace: shop
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: inventory
+      app: payment
   template:
     metadata:
       labels:
-        app: inventory
+        app: payment
       annotations:
         prometheus.io/scrape: "true"
         prometheus.io/port: "8080"
         prometheus.io/path: "/metrics"
     spec:
       containers:
-        - name: inventory
-          image: go-ddd-shop/inventory:part-9
+        - name: payment
+          image: go-ddd-shop/payment:part-9
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8080

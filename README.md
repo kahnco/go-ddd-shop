@@ -33,6 +33,15 @@
 7. 상태·설정·스케일링 — StatefulSet/PVC, ConfigMap/Secret, probe·HPA
 8. CI/CD와 관찰성 — GitHub Actions·GitOps, 이벤트 흐름 추적
 
+### 심화: 쇼핑몰 고도화 (part-9~)
+
+주문 여정이 이벤트만으로 끝까지 흐르도록 완성하고 리팩터링으로 다듬습니다.
+
+1. 사가를 닫다 — 결제 서비스와 자동 취소 (주문 PLACED→PAID→CONFIRMED, 재고 부족 시 자동 취소)
+2. 배송과 완전한 보상 — 배송 서비스, 결제 실패 시 재고 복원
+3. 상품 카탈로그 — 진짜 상품과 가격
+4. 신뢰할 수 있는 이벤트 — 아웃박스와 멱등성
+
 ## 편별로 따라오기
 
 각 편이 끝난 시점의 코드에 **`part-N` 태그**를 찍어 둡니다. 원하는 지점부터 따라올 수 있습니다.
@@ -77,10 +86,11 @@ curl -X POST localhost:8080/orders \
 # 1) 로컬 클러스터 (80 포트를 호스트로 노출)
 kind create cluster --name shop --config deploy/kind/cluster.yaml
 
-# 2) 이미지 빌드 후 kind 로 로드
-docker build --build-arg SERVICE=ordering  -t go-ddd-shop/ordering:part-8  .
-docker build --build-arg SERVICE=inventory -t go-ddd-shop/inventory:part-8 .
-kind load docker-image go-ddd-shop/ordering:part-8 go-ddd-shop/inventory:part-8 --name shop
+# 2) 이미지 빌드 후 kind 로 로드 (주문·재고·결제)
+docker build --build-arg SERVICE=ordering  -t go-ddd-shop/ordering:part-9  .
+docker build --build-arg SERVICE=inventory -t go-ddd-shop/inventory:part-9 .
+docker build --build-arg SERVICE=payment   -t go-ddd-shop/payment:part-9   .
+kind load docker-image go-ddd-shop/ordering:part-9 go-ddd-shop/inventory:part-9 go-ddd-shop/payment:part-9 --name shop
 
 # 3) Ingress 컨트롤러 + metrics-server(HPA용) + 앱 매니페스트
 kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.11.3/deploy/static/provider/kind/deploy.yaml

@@ -41,9 +41,12 @@ func main() {
 	}
 
 	// 발행 어댑터 선택. NATS_URL 이 있으면 브로커로, 없으면 로그로.
+	// NATS 를 쓰면 주문은 이벤트를 발행할 뿐 아니라, 사가 이벤트도 구독한다(아래).
 	var publisher app.EventPublisher = infra.NewLogPublisher(logger)
+	var bus *eventbus.Bus
 	if url := os.Getenv("NATS_URL"); url != "" {
-		bus, err := eventbus.Connect(url)
+		var err error
+		bus, err = eventbus.Connect(url)
 		if err != nil {
 			logger.Error("nats 연결 실패", "url", url, "err", err)
 			os.Exit(1)
@@ -54,6 +57,21 @@ func main() {
 	}
 
 	svc := app.NewOrderService(repo, publisher, ids)
+
+	// 사가 구독: 결제 완료 → 주문 확정, 재고 부족 → 주문 취소.
+	// 주문 서비스가 다른 컨텍스트의 이벤트에 반응해 주문 여정을 이어간다.
+	if bus != nil {
+		saga := infra.NewOrderSagaConsumer(svc, logger)
+		if err := bus.Subscribe("payment.completed", "ordering", saga.OnPaymentCompleted); err != nil {
+			logger.Error("payment.completed 구독 실패", "err", err)
+			os.Exit(1)
+		}
+		if err := bus.Subscribe("inventory.stock.reservation_failed", "ordering", saga.OnStockReservationFailed); err != nil {
+			logger.Error("stock.reservation_failed 구독 실패", "err", err)
+			os.Exit(1)
+		}
+		logger.Info("사가 구독 시작 — payment.completed·stock.reservation_failed")
+	}
 
 	mux := http.NewServeMux()
 	api.NewOrderHandler(svc).Register(mux)
