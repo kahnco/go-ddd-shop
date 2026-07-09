@@ -8,6 +8,7 @@ import (
 	"github.com/kahnco/go-ddd-shop/internal/ordering/api"
 	"github.com/kahnco/go-ddd-shop/internal/ordering/app"
 	"github.com/kahnco/go-ddd-shop/internal/ordering/infra"
+	"github.com/kahnco/go-ddd-shop/internal/platform/eventbus"
 )
 
 // main 은 "조립 루트(composition root)".
@@ -18,8 +19,21 @@ func main() {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 
 	repo := infra.NewMemoryOrderRepository()
-	publisher := infra.NewLogPublisher(logger)
 	ids := infra.RandomIDGenerator{}
+
+	// 발행 어댑터 선택. NATS_URL 이 있으면 브로커로 발행하고, 없으면 로그로 찍는다.
+	// 유스케이스(OrderService)는 EventPublisher 포트만 보므로, 여기서 무엇을 끼우든 모른다.
+	var publisher app.EventPublisher = infra.NewLogPublisher(logger)
+	if url := os.Getenv("NATS_URL"); url != "" {
+		bus, err := eventbus.Connect(url)
+		if err != nil {
+			logger.Error("nats 연결 실패", "url", url, "err", err)
+			os.Exit(1)
+		}
+		defer bus.Close()
+		publisher = infra.NewNatsEventPublisher(bus, "ordering")
+		logger.Info("이벤트 발행 = NATS", "url", url)
+	}
 
 	svc := app.NewOrderService(repo, publisher, ids)
 

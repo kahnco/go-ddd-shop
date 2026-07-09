@@ -1,5 +1,7 @@
 package domain
 
+import "encoding/json"
+
 // 값 객체(Value Object)들.
 // 값 객체는 식별자가 없고 값 자체로 동등하며, 한번 만들어지면 바뀌지 않는다(불변).
 // 생성 시점에 유효성을 강제해, 이후 코드에서는 "항상 유효한 값"이라고 믿을 수 있게 한다.
@@ -20,6 +22,10 @@ func NewMoney(amount int64) (Money, error) {
 func (m Money) Amount() int64       { return m.amount }
 func (m Money) Add(o Money) Money   { return Money{amount: m.amount + o.amount} }
 func (m Money) Equals(o Money) bool { return m.amount == o.amount }
+
+// MarshalJSON — 금액은 겉으로는 그냥 정수(원)다. 이벤트를 브로커로 내보낼 때
+// Money 가 스칼라 값으로 직렬화되도록 한다(내부 필드가 비공개라 기본 직렬화로는 {} 가 된다).
+func (m Money) MarshalJSON() ([]byte, error) { return json.Marshal(m.amount) }
 
 // Times 는 금액에 수량을 곱한다(주문 항목 소계 계산용).
 func (m Money) Times(q Quantity) Money {

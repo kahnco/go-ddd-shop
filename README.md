@@ -43,6 +43,34 @@ cd go-ddd-shop
 git checkout part-1     # 1편이 끝난 시점의 코드
 ```
 
+## 실행해보기 (part-4 기준)
+
+전체 테스트(임베디드 NATS로 이벤트 흐름까지 검증):
+
+```bash
+go test ./...
+```
+
+이벤트로 이어진 두 서비스를 직접 띄워보기 — NATS 브로커가 필요합니다.
+
+```bash
+# 1) NATS 브로커
+docker run -p 4222:4222 nats:latest        # 또는: go run github.com/nats-io/nats-server/v2 -p 4222
+
+# 2) 재고 소비자 (order.placed 구독)
+NATS_URL=nats://localhost:4222 go run ./cmd/inventory
+
+# 3) 주문 서비스 (NATS_URL 이 있으면 이벤트를 브로커로 발행)
+NATS_URL=nats://localhost:4222 go run ./cmd/ordering
+
+# 4) 주문을 넣으면, 재고 서비스가 이벤트를 받아 재고를 예약한다
+curl -X POST localhost:8080/orders \
+  -d '{"customer_id":"c1","items":[{"product_id":"prod-A","quantity":2,"unit_price":1000}]}'
+```
+
+> `NATS_URL` 없이 `go run ./cmd/ordering` 만 띄우면, 발행 어댑터가 로그 발행으로 대체돼
+> 브로커 없이도 단독 실행됩니다(포트/어댑터 교체의 이점).
+
 ## 라이선스
 
 MIT

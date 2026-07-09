@@ -63,6 +63,13 @@ func TestPlaceOrder_OrderPlaced_이벤트를_기록(t *testing.T) {
 	if placed.OrderID != "order-1" || placed.Total.Amount() != 5000 {
 		t.Fatalf("이벤트 내용 불일치: %+v", placed)
 	}
+	// 이벤트는 재고 예약에 필요한 항목을 실어 나른다(event-carried state transfer).
+	if len(placed.Items) != 2 {
+		t.Fatalf("이벤트 항목 2개여야 하는데 %d개", len(placed.Items))
+	}
+	if placed.Items[0].ProductID != "prod-A" || placed.Items[0].Quantity != 2 {
+		t.Fatalf("첫 항목 = prod-A×2 여야 하는데 %+v", placed.Items[0])
+	}
 	// PullEvents 후에는 비어야 한다.
 	if again := o.PullEvents(); len(again) != 0 {
 		t.Fatalf("PullEvents 후에는 비어야 하는데 %d개", len(again))

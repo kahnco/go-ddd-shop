@@ -41,7 +41,12 @@ func PlaceOrder(id OrderID, customerID CustomerID, lines []OrderLine) (*Order, e
 		lines:      lines,
 		status:     StatusPlaced,
 	}
-	o.record(OrderPlaced{OrderID: id, CustomerID: customerID, Total: o.Total()})
+	// 이벤트에 항목을 실어 보낸다. 재고 컨텍스트가 이 데이터만으로 예약할 수 있게.
+	items := make([]OrderPlacedItem, len(lines))
+	for i, l := range lines {
+		items[i] = OrderPlacedItem{ProductID: l.productID, Quantity: l.quantity.value}
+	}
+	o.record(OrderPlaced{OrderID: id, CustomerID: customerID, Total: o.Total(), Items: items})
 	return o, nil
 }
 
