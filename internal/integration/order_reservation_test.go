@@ -26,12 +26,17 @@ func wireInventory(t *testing.T, bus *eventbus.Bus, seed map[string]int) *invinf
 	for id, n := range seed {
 		repo.Seed(invDomainProductID(id), n)
 	}
+	reservations := invinfra.NewMemoryReservationRepository()
 	pub := invinfra.NewNatsEventPublisher(bus, "inventory")
-	svc := invapp.NewReservationService(repo, pub)
-	consumer := invinfra.NewOrderPlacedConsumer(svc, discardLogger())
+	svc := invapp.NewReservationService(repo, reservations, pub)
 
-	if err := bus.Subscribe("ordering.order.placed", "inventory", consumer.Handle); err != nil {
-		t.Fatalf("구독: %v", err)
+	placed := invinfra.NewOrderPlacedConsumer(svc, discardLogger())
+	if err := bus.Subscribe("ordering.order.placed", "inventory", placed.Handle); err != nil {
+		t.Fatalf("order.placed 구독: %v", err)
+	}
+	cancelled := invinfra.NewOrderCancelledConsumer(svc, discardLogger())
+	if err := bus.Subscribe("ordering.order.cancelled", "inventory", cancelled.Handle); err != nil {
+		t.Fatalf("order.cancelled 구독: %v", err)
 	}
 	return repo
 }

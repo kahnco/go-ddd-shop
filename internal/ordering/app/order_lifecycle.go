@@ -29,6 +29,21 @@ func (s *OrderService) ConfirmPaidOrder(ctx context.Context, id domain.OrderID) 
 	return s.publisher.Publish(ctx, order.PullEvents()...)
 }
 
+// ShipOrder 는 배송 시작에 반응해 주문을 확정→배송중으로 전이한다.
+func (s *OrderService) ShipOrder(ctx context.Context, id domain.OrderID) error {
+	order, err := s.repo.FindByID(ctx, id)
+	if err != nil {
+		return err
+	}
+	if err := order.Ship(); err != nil {
+		return err
+	}
+	if err := s.repo.Save(ctx, order); err != nil {
+		return err
+	}
+	return s.publisher.Publish(ctx, order.PullEvents()...)
+}
+
 // CancelOrder 는 재고 부족·결제 실패 등에 반응해 주문을 취소한다(사가의 보상 경로).
 func (s *OrderService) CancelOrder(ctx context.Context, id domain.OrderID) error {
 	order, err := s.repo.FindByID(ctx, id)

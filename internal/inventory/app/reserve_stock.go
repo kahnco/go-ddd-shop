@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 
 	"github.com/kahnco/go-ddd-shop/internal/inventory/domain"
 )
@@ -21,12 +22,13 @@ type ReservationItem struct {
 
 // ReservationService 는 재고 예약 유스케이스를 담는 애플리케이션 서비스.
 type ReservationService struct {
-	stock     domain.StockRepository
-	publisher EventPublisher
+	stock        domain.StockRepository
+	reservations domain.ReservationRepository
+	publisher    EventPublisher
 }
 
-func NewReservationService(stock domain.StockRepository, publisher EventPublisher) *ReservationService {
-	return &ReservationService{stock: stock, publisher: publisher}
+func NewReservationService(stock domain.StockRepository, reservations domain.ReservationRepository, publisher EventPublisher) *ReservationService {
+	return &ReservationService{stock: stock, reservations: reservations, publisher: publisher}
 }
 
 // OnOrderPlaced 는 주문 생성에 반응해 모든 항목의 재고를 예약한다.
@@ -65,7 +67,41 @@ func (s *ReservationService) OnOrderPlaced(ctx context.Context, cmd ReserveForOr
 		done = append(done, reserved{item: item, qty: it.Quantity})
 	}
 
+	// 예약 성공 → 무엇을 예약했는지 기록해 둔다. 나중에 취소되면 이걸 보고 되돌린다.
+	reservation := domain.NewReservation(domain.OrderID(cmd.OrderID))
+	for _, it := range cmd.Items {
+		reservation.Add(domain.ProductID(it.ProductID), it.Quantity)
+	}
+	if err := s.reservations.Save(ctx, reservation); err != nil {
+		return err
+	}
+
 	return s.publisher.Publish(ctx, domain.StockReserved{OrderID: domain.OrderID(cmd.OrderID), Amount: cmd.Amount})
+}
+
+// OnOrderCancelled 는 주문 취소에 반응해, 그 주문을 위해 잡아 둔 재고를 되돌린다(보상).
+// 예약 기록이 없으면(예: 애초에 예약이 실패한 주문) 할 일이 없으므로 조용히 넘어간다.
+func (s *ReservationService) OnOrderCancelled(ctx context.Context, orderID string) error {
+	reservation, err := s.reservations.Find(ctx, domain.OrderID(orderID))
+	if errors.Is(err, domain.ErrReservationNotFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+
+	for _, item := range reservation.Items() {
+		stock, err := s.stock.FindByProduct(ctx, item.ProductID)
+		if err != nil {
+			continue // 재고 항목을 못 찾으면 건너뛴다(방어적)
+		}
+		stock.Release(item.Quantity)
+		if err := s.stock.Save(ctx, stock); err != nil {
+			return err
+		}
+	}
+	// 되돌렸으니 기록을 지운다 — 중복 취소가 와도 두 번 복원하지 않는다(멱등).
+	return s.reservations.Delete(ctx, domain.OrderID(orderID))
 }
 
 func (s *ReservationService) publishFailed(ctx context.Context, orderID string, cause error) error {

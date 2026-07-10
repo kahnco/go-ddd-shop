@@ -41,3 +41,13 @@ services:
       NATS_URL: nats://nats:4222
     depends_on:
       - nats
+
+  shipping:
+    build:
+      context: .
+      args:
+        SERVICE: shipping
+    environment:
+      NATS_URL: nats://nats:4222
+    depends_on:
+      - nats

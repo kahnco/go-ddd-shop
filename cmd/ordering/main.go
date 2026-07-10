@@ -62,15 +62,22 @@ func main() {
 	// 주문 서비스가 다른 컨텍스트의 이벤트에 반응해 주문 여정을 이어간다.
 	if bus != nil {
 		saga := infra.NewOrderSagaConsumer(svc, logger)
-		if err := bus.Subscribe("payment.completed", "ordering", saga.OnPaymentCompleted); err != nil {
-			logger.Error("payment.completed 구독 실패", "err", err)
-			os.Exit(1)
+		subs := []struct {
+			subject string
+			handler eventbus.Handler
+		}{
+			{"payment.completed", saga.OnPaymentCompleted},                        // 결제 완료 → 확정
+			{"payment.failed", saga.OnPaymentFailed},                              // 결제 실패 → 취소
+			{"shipping.dispatched", saga.OnShipmentDispatched},                    // 배송 시작 → 배송중
+			{"inventory.stock.reservation_failed", saga.OnStockReservationFailed}, // 재고 부족 → 취소
 		}
-		if err := bus.Subscribe("inventory.stock.reservation_failed", "ordering", saga.OnStockReservationFailed); err != nil {
-			logger.Error("stock.reservation_failed 구독 실패", "err", err)
-			os.Exit(1)
+		for _, s := range subs {
+			if err := bus.Subscribe(s.subject, "ordering", s.handler); err != nil {
+				logger.Error("사가 구독 실패", "subject", s.subject, "err", err)
+				os.Exit(1)
+			}
 		}
-		logger.Info("사가 구독 시작 — payment.completed·stock.reservation_failed")
+		logger.Info("사가 구독 시작 — payment·shipping·stock 이벤트")
 	}
 
 	mux := http.NewServeMux()

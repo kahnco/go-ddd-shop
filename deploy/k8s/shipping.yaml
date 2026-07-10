@@ -1,27 +1,26 @@
-# 결제 서비스. 재고 예약(stock.reserved)을 구독해 결제를 처리하는 소비자.
-# 재고 서비스처럼 비즈니스 입구는 이벤트뿐이라, HTTP 는 관찰성·probe 용으로만 연다.
+# 배송 서비스. 주문 확정(order.confirmed)을 구독해 배송을 시작하는 소비자.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: payment
+  name: shipping
   namespace: shop
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: payment
+      app: shipping
   template:
     metadata:
       labels:
-        app: payment
+        app: shipping
       annotations:
         prometheus.io/scrape: "true"
         prometheus.io/port: "8080"
         prometheus.io/path: "/metrics"
     spec:
       containers:
-        - name: payment
-          image: go-ddd-shop/payment:part-10
+        - name: shipping
+          image: go-ddd-shop/shipping:part-10
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8080

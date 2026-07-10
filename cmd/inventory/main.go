@@ -32,15 +32,22 @@ func main() {
 	repo.Seed("prod-A", 10)
 	repo.Seed("prod-B", 5)
 
+	reservations := infra.NewMemoryReservationRepository()
 	publisher := infra.NewNatsEventPublisher(bus, "inventory")
-	svc := app.NewReservationService(repo, publisher)
-	consumer := infra.NewOrderPlacedConsumer(svc, logger)
+	svc := app.NewReservationService(repo, reservations, publisher)
 
-	if err := bus.Subscribe("ordering.order.placed", "inventory", consumer.Handle); err != nil {
-		logger.Error("구독 실패", "err", err)
+	placedConsumer := infra.NewOrderPlacedConsumer(svc, logger)
+	if err := bus.Subscribe("ordering.order.placed", "inventory", placedConsumer.Handle); err != nil {
+		logger.Error("order.placed 구독 실패", "err", err)
 		os.Exit(1)
 	}
-	logger.Info("inventory 서비스 시작 — order.placed 구독 중", "nats", url)
+	// 주문이 취소되면(재고부족·결제실패 등) 잡아 둔 재고를 되돌린다(보상).
+	cancelledConsumer := infra.NewOrderCancelledConsumer(svc, logger)
+	if err := bus.Subscribe("ordering.order.cancelled", "inventory", cancelledConsumer.Handle); err != nil {
+		logger.Error("order.cancelled 구독 실패", "err", err)
+		os.Exit(1)
+	}
+	logger.Info("inventory 서비스 시작 — order.placed·order.cancelled 구독 중", "nats", url)
 
 	// 관찰성·probe 용 최소 HTTP 서버(별도 고루틴).
 	mux := http.NewServeMux()
