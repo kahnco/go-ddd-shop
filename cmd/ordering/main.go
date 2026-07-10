@@ -46,7 +46,7 @@ func main() {
 	var bus *eventbus.Bus
 	if url := os.Getenv("NATS_URL"); url != "" {
 		var err error
-		bus, err = eventbus.Connect(url)
+		bus, err = eventbus.Connect(url, eventbus.OptionsFromEnv()...)
 		if err != nil {
 			logger.Error("nats 연결 실패", "url", url, "err", err)
 			os.Exit(1)

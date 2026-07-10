@@ -19,7 +19,7 @@ func main() {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 
 	url := envOr("NATS_URL", "nats://localhost:4222")
-	bus, err := eventbus.Connect(url)
+	bus, err := eventbus.Connect(url, eventbus.OptionsFromEnv()...)
 	if err != nil {
 		logger.Error("nats 연결 실패", "url", url, "err", err)
 		os.Exit(1)

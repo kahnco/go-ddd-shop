@@ -25,7 +25,7 @@ func main() {
 	// 발행 어댑터: NATS 있으면 브로커로, 없으면 로그(단독 실행).
 	var publisher app.EventPublisher = infra.NewLogPublisher(logger)
 	if url := os.Getenv("NATS_URL"); url != "" {
-		bus, err := eventbus.Connect(url)
+		bus, err := eventbus.Connect(url, eventbus.OptionsFromEnv()...)
 		if err != nil {
 			logger.Error("nats 연결 실패", "url", url, "err", err)
 			os.Exit(1)
