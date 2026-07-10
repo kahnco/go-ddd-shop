@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"log/slog"
 	"net/http"
 	"os"
@@ -16,6 +17,9 @@ import (
 // shipping 서비스: 주문 확정(order.confirmed)을 구독해 배송을 시작하는 소비자.
 func main() {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+
+	shutdown, _ := telemetry.InitTracer(context.Background(), "shipping")
+	defer func() { _ = shutdown(context.Background()) }()
 
 	url := envOr("NATS_URL", "nats://localhost:4222")
 	bus, err := eventbus.Connect(url, eventbus.OptionsFromEnv()...)

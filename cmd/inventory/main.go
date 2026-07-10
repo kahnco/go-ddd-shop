@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"log/slog"
 	"net/http"
 	"os"
@@ -18,6 +19,9 @@ import (
 // 최소한의 HTTP 서버는 연다.
 func main() {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+
+	shutdown, _ := telemetry.InitTracer(context.Background(), "inventory")
+	defer func() { _ = shutdown(context.Background()) }()
 
 	url := envOr("NATS_URL", "nats://localhost:4222")
 	bus, err := eventbus.Connect(url, eventbus.OptionsFromEnv()...)

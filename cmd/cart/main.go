@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"log/slog"
 	"net/http"
 	"os"
@@ -15,6 +16,9 @@ import (
 // 그렇게 만들어진 주문이 기존 이벤트 사가(재고→결제→배송)를 그대로 탄다.
 func main() {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+
+	shutdown, _ := telemetry.InitTracer(context.Background(), "cart")
+	defer func() { _ = shutdown(context.Background()) }()
 
 	carts := infra.NewMemoryCartRepository()
 	customers := infra.NewHTTPCustomerLookup(envOr("CUSTOMER_URL", "http://localhost:8085"))
@@ -32,7 +36,7 @@ func main() {
 
 	addr := envOr("HTTP_ADDR", ":8080")
 	logger.Info("cart 서비스 시작", "addr", addr)
-	if err := http.ListenAndServe(addr, telemetry.Middleware(logger, mux)); err != nil {
+	if err := http.ListenAndServe(addr, telemetry.WrapHTTP(telemetry.Middleware(logger, mux), "cart")); err != nil {
 		logger.Error("서버 종료", "err", err)
 		os.Exit(1)
 	}

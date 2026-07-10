@@ -23,6 +23,12 @@ func main() {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 	ctx := context.Background()
 
+	shutdown, err := telemetry.InitTracer(ctx, "ordering")
+	if err != nil {
+		logger.Error("트레이서 초기화 실패", "err", err)
+	}
+	defer func() { _ = shutdown(context.Background()) }()
+
 	ids := infra.RandomIDGenerator{}
 
 	// 저장소 선택. DATABASE_URL 이 있으면 PostgreSQL(여러 파드가 상태를 공유),
@@ -114,8 +120,8 @@ func main() {
 	api.RegisterHealth(mux, ready)
 	mux.Handle("GET /metrics", telemetry.MetricsHandler()) // 프로메테우스 스크레이프 대상
 
-	// 미들웨어로 감싸 상관 ID·접근 로그·HTTP 메트릭을 모든 요청에 적용한다.
-	handler := telemetry.Middleware(logger, mux)
+	// otelhttp(서버 span·traceparent 추출) + 미들웨어(상관 ID·접근 로그·HTTP 메트릭)로 감싼다.
+	handler := telemetry.WrapHTTP(telemetry.Middleware(logger, mux), "ordering")
 
 	addr := ":8080"
 	logger.Info("ordering service 시작", "addr", addr)

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"log/slog"
 	"net/http"
 	"os"
@@ -14,6 +15,9 @@ import (
 // customer 서비스: 회원 등록·조회. 장바구니가 결제 시 회원 존재를 여기서 확인한다.
 func main() {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+
+	shutdown, _ := telemetry.InitTracer(context.Background(), "customer")
+	defer func() { _ = shutdown(context.Background()) }()
 
 	repo := infra.NewMemoryCustomerRepository()
 
@@ -41,7 +45,7 @@ func main() {
 
 	addr := envOr("HTTP_ADDR", ":8080")
 	logger.Info("customer 서비스 시작", "addr", addr)
-	if err := http.ListenAndServe(addr, telemetry.Middleware(logger, mux)); err != nil {
+	if err := http.ListenAndServe(addr, telemetry.WrapHTTP(telemetry.Middleware(logger, mux), "customer")); err != nil {
 		logger.Error("서버 종료", "err", err)
 		os.Exit(1)
 	}

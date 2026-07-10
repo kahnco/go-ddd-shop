@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"log/slog"
 	"net/http"
 	"os"
@@ -17,6 +18,9 @@ import (
 // 결과(payment.completed / payment.failed)를 다시 발행해 주문 컨텍스트가 이어받게 한다.
 func main() {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+
+	shutdown, _ := telemetry.InitTracer(context.Background(), "payment")
+	defer func() { _ = shutdown(context.Background()) }()
 
 	url := envOr("NATS_URL", "nats://localhost:4222")
 	bus, err := eventbus.Connect(url, eventbus.OptionsFromEnv()...)

@@ -58,6 +58,7 @@ CREATE TABLE IF NOT EXISTS outbox (
     event_name     TEXT   NOT NULL,
     payload        JSONB  NOT NULL,
     correlation_id TEXT,
+    traceparent    TEXT,
     published_at   TIMESTAMPTZ
 );`
 	if _, err := r.pool.Exec(ctx, ddl); err != nil {
@@ -104,6 +105,7 @@ func (r *PostgresOrderRepository) Save(ctx context.Context, order *domain.Order)
 	// 주문 저장과 이벤트 기록이 원자적이라, "저장은 됐는데 발행은 안 된" 불일치가 원천 차단된다.
 	// 실제 브로커 발행은 별도의 릴레이(OutboxRelay)가 아웃박스를 읽어 대신 한다.
 	cid := telemetry.CorrelationID(ctx)
+	tp := telemetry.TraceparentFromContext(ctx) // 발행 시점에 소비자가 이어받을 trace 컨텍스트
 	for _, e := range order.PullEvents() {
 		payload, err := json.Marshal(e)
 		if err != nil {
@@ -111,8 +113,8 @@ func (r *PostgresOrderRepository) Save(ctx context.Context, order *domain.Order)
 		}
 		subject := outboxSubjectPrefix + "." + e.EventName()
 		if _, err = tx.Exec(ctx, `
-            INSERT INTO outbox (subject, event_name, payload, correlation_id) VALUES ($1, $2, $3, $4)`,
-			subject, e.EventName(), payload, cid); err != nil {
+            INSERT INTO outbox (subject, event_name, payload, correlation_id, traceparent) VALUES ($1, $2, $3, $4, $5)`,
+			subject, e.EventName(), payload, cid, tp); err != nil {
 			return err
 		}
 	}
@@ -127,12 +129,13 @@ type OutboxMessage struct {
 	EventName     string
 	Payload       []byte
 	CorrelationID string
+	Traceparent   string
 }
 
 // FetchOutbox 는 아직 발행하지 않은 이벤트를 오래된 순으로 가져온다(릴레이용).
 func (r *PostgresOrderRepository) FetchOutbox(ctx context.Context, limit int) ([]OutboxMessage, error) {
 	rows, err := r.pool.Query(ctx, `
-        SELECT id, subject, event_name, payload, COALESCE(correlation_id, '')
+        SELECT id, subject, event_name, payload, COALESCE(correlation_id, ''), COALESCE(traceparent, '')
         FROM outbox WHERE published_at IS NULL ORDER BY id LIMIT $1`, limit)
 	if err != nil {
 		return nil, err
@@ -142,7 +145,7 @@ func (r *PostgresOrderRepository) FetchOutbox(ctx context.Context, limit int) ([
 	var msgs []OutboxMessage
 	for rows.Next() {
 		var m OutboxMessage
-		if err := rows.Scan(&m.ID, &m.Subject, &m.EventName, &m.Payload, &m.CorrelationID); err != nil {
+		if err := rows.Scan(&m.ID, &m.Subject, &m.EventName, &m.Payload, &m.CorrelationID, &m.Traceparent); err != nil {
 			return nil, err
 		}
 		msgs = append(msgs, m)

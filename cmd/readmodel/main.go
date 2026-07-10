@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"log/slog"
 	"net/http"
 	"os"
@@ -17,6 +18,9 @@ import (
 // JetStream 내구 소비자라, 처음 붙으면 스트림의 과거 이벤트까지 재생해 뷰를 재구축한다.
 func main() {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+
+	shutdown, _ := telemetry.InitTracer(context.Background(), "readmodel")
+	defer func() { _ = shutdown(context.Background()) }()
 
 	url := envOr("NATS_URL", "nats://localhost:4222")
 	bus, err := eventbus.Connect(url, eventbus.OptionsFromEnv()...)
@@ -47,7 +51,7 @@ func main() {
 	go func() {
 		addr := envOr("HTTP_ADDR", ":8080")
 		logger.Info("readmodel 조회 API", "addr", addr)
-		if err := http.ListenAndServe(addr, telemetry.Middleware(logger, mux)); err != nil {
+		if err := http.ListenAndServe(addr, telemetry.WrapHTTP(telemetry.Middleware(logger, mux), "readmodel")); err != nil {
 			logger.Error("HTTP 서버 종료", "err", err)
 		}
 	}()

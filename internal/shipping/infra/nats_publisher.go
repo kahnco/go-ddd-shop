@@ -24,9 +24,7 @@ func (p *NatsEventPublisher) Publish(ctx context.Context, events ...domain.Domai
 		if err != nil {
 			return err
 		}
-		if cid := telemetry.CorrelationID(ctx); cid != "" {
-			env.Meta = map[string]string{telemetry.MetaCorrelationID: cid}
-		}
+		env.Meta = telemetry.MetaFromContext(ctx)
 		if err := p.bus.Publish(subject, env); err != nil {
 			return err
 		}

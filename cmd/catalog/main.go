@@ -20,6 +20,12 @@ func main() {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 	ctx := context.Background()
 
+	shutdown, err := telemetry.InitTracer(ctx, "catalog")
+	if err != nil {
+		logger.Error("트레이서 초기화 실패", "err", err)
+	}
+	defer func() { _ = shutdown(context.Background()) }()
+
 	repo := infra.NewMemoryProductRepository()
 
 	// 발행 어댑터: NATS 있으면 브로커로, 없으면 로그(단독 실행).
@@ -51,7 +57,7 @@ func main() {
 
 	addr := envOr("HTTP_ADDR", ":8080")
 	logger.Info("catalog 서비스 시작", "addr", addr)
-	if err := http.ListenAndServe(addr, telemetry.Middleware(logger, mux)); err != nil {
+	if err := http.ListenAndServe(addr, telemetry.WrapHTTP(telemetry.Middleware(logger, mux), "catalog")); err != nil {
 		logger.Error("서버 종료", "err", err)
 		os.Exit(1)
 	}

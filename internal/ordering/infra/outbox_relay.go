@@ -58,8 +58,15 @@ func (r *OutboxRelay) dispatch(ctx context.Context) {
 			Name: m.EventName,
 			Data: m.Payload,
 		}
+		meta := map[string]string{}
 		if m.CorrelationID != "" {
-			env.Meta = map[string]string{telemetry.MetaCorrelationID: m.CorrelationID}
+			meta[telemetry.MetaCorrelationID] = m.CorrelationID
+		}
+		if m.Traceparent != "" {
+			meta["traceparent"] = m.Traceparent // 저장해 둔 trace 컨텍스트를 소비자에게 잇는다
+		}
+		if len(meta) > 0 {
+			env.Meta = meta
 		}
 		if err := r.bus.Publish(m.Subject, env); err != nil {
 			r.log.Error("아웃박스 발행 실패(다음 주기에 재시도)", "id", m.ID, "err", err)

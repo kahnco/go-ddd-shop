@@ -4,6 +4,8 @@ import (
 	"context"
 	"log/slog"
 
+	"go.opentelemetry.io/otel/trace"
+
 	"github.com/kahnco/go-ddd-shop/internal/ordering/app"
 	"github.com/kahnco/go-ddd-shop/internal/ordering/domain"
 	"github.com/kahnco/go-ddd-shop/internal/platform/eventbus"
@@ -26,19 +28,21 @@ type orderRef struct {
 	Reason  string `json:"reason"`
 }
 
-// prepare 는 봉투에서 상관 ID·주문 ID 를 뽑아 ctx·logger 를 갖춘다(핸들러 공통).
-func (c *OrderSagaConsumer) prepare(env eventbus.Envelope) (context.Context, *slog.Logger, orderRef, error) {
-	cid := env.Meta[telemetry.MetaCorrelationID]
-	ctx := telemetry.WithCorrelationID(context.Background(), cid)
-	log := c.log.With("correlation_id", cid)
+// prepare 는 봉투에서 상관 ID·trace 컨텍스트·주문 ID 를 뽑아 ctx·span·logger 를 갖춘다(핸들러 공통).
+// 반환한 span 은 호출자가 defer span.End() 로 닫아야 한다.
+func (c *OrderSagaConsumer) prepare(env eventbus.Envelope) (context.Context, trace.Span, *slog.Logger, orderRef, error) {
+	ctx := telemetry.ContextFromMeta(context.Background(), env.Meta)
+	ctx, span := telemetry.StartSpan(ctx, "consume "+env.Name)
+	log := c.log.With("correlation_id", telemetry.CorrelationID(ctx))
 	var ref orderRef
 	err := env.Into(&ref)
-	return ctx, log, ref, err
+	return ctx, span, log, ref, err
 }
 
 // OnPaymentCompleted 는 결제 완료(payment.completed)에 반응해 주문을 확정한다.
 func (c *OrderSagaConsumer) OnPaymentCompleted(env eventbus.Envelope) error {
-	ctx, log, ref, err := c.prepare(env)
+	ctx, span, log, ref, err := c.prepare(env)
+	defer span.End()
 	if err != nil {
 		telemetry.RecordEventConsumed("payment.completed", "decode_error")
 		return err
@@ -55,7 +59,8 @@ func (c *OrderSagaConsumer) OnPaymentCompleted(env eventbus.Envelope) error {
 
 // OnStockReservationFailed 는 재고 부족(stock.reservation_failed)에 반응해 주문을 취소한다.
 func (c *OrderSagaConsumer) OnStockReservationFailed(env eventbus.Envelope) error {
-	ctx, log, ref, err := c.prepare(env)
+	ctx, span, log, ref, err := c.prepare(env)
+	defer span.End()
 	if err != nil {
 		telemetry.RecordEventConsumed("stock.reservation_failed", "decode_error")
 		return err
@@ -73,7 +78,8 @@ func (c *OrderSagaConsumer) OnStockReservationFailed(env eventbus.Envelope) erro
 // OnPaymentFailed 는 결제 실패(payment.failed)에 반응해 주문을 취소한다.
 // 취소 이벤트를 받은 재고 컨텍스트가 예약한 재고까지 되돌린다(완전한 보상).
 func (c *OrderSagaConsumer) OnPaymentFailed(env eventbus.Envelope) error {
-	ctx, log, ref, err := c.prepare(env)
+	ctx, span, log, ref, err := c.prepare(env)
+	defer span.End()
 	if err != nil {
 		telemetry.RecordEventConsumed("payment.failed", "decode_error")
 		return err
@@ -90,7 +96,8 @@ func (c *OrderSagaConsumer) OnPaymentFailed(env eventbus.Envelope) error {
 
 // OnShipmentDispatched 는 배송 시작(shipping.dispatched)에 반응해 주문을 배송중으로 전이한다.
 func (c *OrderSagaConsumer) OnShipmentDispatched(env eventbus.Envelope) error {
-	ctx, log, ref, err := c.prepare(env)
+	ctx, span, log, ref, err := c.prepare(env)
+	defer span.End()
 	if err != nil {
 		telemetry.RecordEventConsumed("shipping.dispatched", "decode_error")
 		return err

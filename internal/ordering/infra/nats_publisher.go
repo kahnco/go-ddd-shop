@@ -27,10 +27,8 @@ func (p *NatsEventPublisher) Publish(ctx context.Context, events ...domain.Domai
 		if err != nil {
 			return err
 		}
-		// 이 요청의 상관 ID 를 이벤트에 실어, 소비 서비스까지 흐름을 잇는다.
-		if cid := telemetry.CorrelationID(ctx); cid != "" {
-			env.Meta = map[string]string{telemetry.MetaCorrelationID: cid}
-		}
+		// 상관 ID + trace 컨텍스트(W3C traceparent)를 이벤트에 실어, 소비 서비스까지 흐름을 잇는다.
+		env.Meta = telemetry.MetaFromContext(ctx)
 		if err := p.bus.Publish(subject, env); err != nil {
 			return err
 		}

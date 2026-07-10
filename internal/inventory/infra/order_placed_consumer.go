@@ -41,9 +41,10 @@ type orderPlacedPayload struct {
 func (c *OrderPlacedConsumer) Handle(env eventbus.Envelope) error {
 	// 발행 서비스가 실어 보낸 상관 ID 를 이어받는다. 이 ID 로 로그를 남기면,
 	// 주문 서비스의 로그와 같은 ID 로 하나의 주문 흐름을 꿰어 볼 수 있다.
-	cid := env.Meta[telemetry.MetaCorrelationID]
-	ctx := telemetry.WithCorrelationID(context.Background(), cid)
-	log := c.log.With("correlation_id", cid)
+	ctx := telemetry.ContextFromMeta(context.Background(), env.Meta)
+	ctx, span := telemetry.StartSpan(ctx, "consume "+env.Name)
+	defer span.End()
+	log := c.log.With("correlation_id", telemetry.CorrelationID(ctx))
 
 	var p orderPlacedPayload
 	if err := env.Into(&p); err != nil {

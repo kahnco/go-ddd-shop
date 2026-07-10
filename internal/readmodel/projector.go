@@ -1,6 +1,7 @@
 package readmodel
 
 import (
+	"context"
 	"log/slog"
 
 	"github.com/kahnco/go-ddd-shop/internal/platform/eventbus"
@@ -23,6 +24,10 @@ func NewProjector(store Store, log *slog.Logger) *Projector {
 
 // Handle 은 ordering.order.> 로 오는 이벤트를 이름으로 갈라 처리한다.
 func (p *Projector) Handle(env eventbus.Envelope) error {
+	ctx := telemetry.ContextFromMeta(context.Background(), env.Meta)
+	_, span := telemetry.StartSpan(ctx, "project "+env.Name)
+	defer span.End()
+
 	switch env.Name {
 	case "order.placed":
 		var e struct {

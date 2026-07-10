@@ -26,9 +26,10 @@ type stockReservedPayload struct {
 }
 
 func (c *StockReservedConsumer) Handle(env eventbus.Envelope) error {
-	cid := env.Meta[telemetry.MetaCorrelationID]
-	ctx := telemetry.WithCorrelationID(context.Background(), cid)
-	log := c.log.With("correlation_id", cid)
+	ctx := telemetry.ContextFromMeta(context.Background(), env.Meta)
+	ctx, span := telemetry.StartSpan(ctx, "consume "+env.Name)
+	defer span.End()
+	log := c.log.With("correlation_id", telemetry.CorrelationID(ctx))
 
 	var p stockReservedPayload
 	if err := env.Into(&p); err != nil {
