@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/kahnco/go-ddd-shop/internal/ordering/api"
 	"github.com/kahnco/go-ddd-shop/internal/ordering/app"
@@ -27,9 +28,11 @@ func main() {
 	// 저장소 선택. DATABASE_URL 이 있으면 PostgreSQL(여러 파드가 상태를 공유),
 	// 없으면 인메모리(단독 실행). readiness probe 는 저장소 종류에 맞게 준비된다.
 	var repo domain.OrderRepository = infra.NewMemoryOrderRepository()
+	var pg *infra.PostgresOrderRepository               // 아웃박스 릴레이가 참조하려고 따로 잡아 둔다
 	ready := func(context.Context) error { return nil } // 인메모리는 항상 준비됨
 	if dsn := os.Getenv("DATABASE_URL"); dsn != "" {
-		pg, err := infra.NewPostgresOrderRepository(ctx, dsn)
+		var err error
+		pg, err = infra.NewPostgresOrderRepository(ctx, dsn)
 		if err != nil {
 			logger.Error("postgres 연결 실패", "err", err)
 			os.Exit(1)
@@ -40,9 +43,6 @@ func main() {
 		logger.Info("주문 저장소 = PostgreSQL")
 	}
 
-	// 발행 어댑터 선택. NATS_URL 이 있으면 브로커로, 없으면 로그로.
-	// NATS 를 쓰면 주문은 이벤트를 발행할 뿐 아니라, 사가 이벤트도 구독한다(아래).
-	var publisher app.EventPublisher = infra.NewLogPublisher(logger)
 	var bus *eventbus.Bus
 	if url := os.Getenv("NATS_URL"); url != "" {
 		var err error
@@ -52,8 +52,23 @@ func main() {
 			os.Exit(1)
 		}
 		defer bus.Close()
+	}
+
+	// 발행 방식 선택.
+	//   - Postgres + NATS → 트랜잭셔널 아웃박스: 이벤트는 저장 트랜잭션으로 아웃박스에 적재되고
+	//     릴레이가 발행한다. 유스케이스의 직접 발행은 no-op 으로 끈다(이중 발행 방지).
+	//   - NATS 만 → 직접 발행. DB 가 없으니 아웃박스도 의미 없다.
+	//   - 둘 다 없음 → 로그 발행(단독 실행).
+	var publisher app.EventPublisher = infra.NewLogPublisher(logger)
+	switch {
+	case pg != nil && bus != nil:
+		publisher = infra.NoopPublisher{}
+		relay := infra.NewOutboxRelay(pg, bus, 200*time.Millisecond, logger)
+		go relay.Run(ctx)
+		logger.Info("이벤트 발행 = 트랜잭셔널 아웃박스 + 릴레이")
+	case bus != nil:
 		publisher = infra.NewNatsEventPublisher(bus, "ordering")
-		logger.Info("이벤트 발행 = NATS", "url", url)
+		logger.Info("이벤트 발행 = NATS(직접)")
 	}
 
 	// 가격 프로젝션(읽기 모델). 카탈로그가 가격의 소유자이고, 주문은 이 사본에서 가격을 읽는다.

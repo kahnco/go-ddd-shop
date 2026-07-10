@@ -2,6 +2,7 @@ package infra
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 
@@ -9,7 +10,11 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/kahnco/go-ddd-shop/internal/ordering/domain"
+	"github.com/kahnco/go-ddd-shop/internal/platform/telemetry"
 )
+
+// 주문 이벤트가 나가는 subject 접두사.
+const outboxSubjectPrefix = "ordering"
 
 // PostgresOrderRepository 는 OrderRepository 포트를 PostgreSQL 로 구현한 어댑터.
 // 3편의 인메모리 구현을 이걸로 갈아끼우면, 여러 파드가 같은 상태를 공유한다.
@@ -46,6 +51,14 @@ CREATE TABLE IF NOT EXISTS order_lines (
     product_id TEXT   NOT NULL,
     quantity   INT    NOT NULL,
     unit_price BIGINT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS outbox (
+    id             BIGSERIAL PRIMARY KEY,
+    subject        TEXT   NOT NULL,
+    event_name     TEXT   NOT NULL,
+    payload        JSONB  NOT NULL,
+    correlation_id TEXT,
+    published_at   TIMESTAMPTZ
 );`
 	if _, err := r.pool.Exec(ctx, ddl); err != nil {
 		return fmt.Errorf("스키마 생성: %w", err)
@@ -86,7 +99,64 @@ func (r *PostgresOrderRepository) Save(ctx context.Context, order *domain.Order)
 			return err
 		}
 	}
+
+	// 핵심: 애그리거트가 낸 도메인 이벤트를 "같은 트랜잭션"으로 아웃박스에 적재한다.
+	// 주문 저장과 이벤트 기록이 원자적이라, "저장은 됐는데 발행은 안 된" 불일치가 원천 차단된다.
+	// 실제 브로커 발행은 별도의 릴레이(OutboxRelay)가 아웃박스를 읽어 대신 한다.
+	cid := telemetry.CorrelationID(ctx)
+	for _, e := range order.PullEvents() {
+		payload, err := json.Marshal(e)
+		if err != nil {
+			return err
+		}
+		subject := outboxSubjectPrefix + "." + e.EventName()
+		if _, err = tx.Exec(ctx, `
+            INSERT INTO outbox (subject, event_name, payload, correlation_id) VALUES ($1, $2, $3, $4)`,
+			subject, e.EventName(), payload, cid); err != nil {
+			return err
+		}
+	}
+
 	return tx.Commit(ctx)
+}
+
+// OutboxMessage 는 아웃박스에 적재된 미발행 이벤트 한 건.
+type OutboxMessage struct {
+	ID            int64
+	Subject       string
+	EventName     string
+	Payload       []byte
+	CorrelationID string
+}
+
+// FetchOutbox 는 아직 발행하지 않은 이벤트를 오래된 순으로 가져온다(릴레이용).
+func (r *PostgresOrderRepository) FetchOutbox(ctx context.Context, limit int) ([]OutboxMessage, error) {
+	rows, err := r.pool.Query(ctx, `
+        SELECT id, subject, event_name, payload, COALESCE(correlation_id, '')
+        FROM outbox WHERE published_at IS NULL ORDER BY id LIMIT $1`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var msgs []OutboxMessage
+	for rows.Next() {
+		var m OutboxMessage
+		if err := rows.Scan(&m.ID, &m.Subject, &m.EventName, &m.Payload, &m.CorrelationID); err != nil {
+			return nil, err
+		}
+		msgs = append(msgs, m)
+	}
+	return msgs, rows.Err()
+}
+
+// MarkOutboxPublished 는 발행 완료한 이벤트에 발행 시각을 찍어 다시 보내지 않게 한다.
+func (r *PostgresOrderRepository) MarkOutboxPublished(ctx context.Context, ids []int64) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	_, err := r.pool.Exec(ctx, `UPDATE outbox SET published_at = now() WHERE id = ANY($1)`, ids)
+	return err
 }
 
 // FindByID 는 주문과 항목을 읽어 애그리거트로 되살린다(reconstitution).

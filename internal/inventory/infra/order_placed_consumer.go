@@ -6,18 +6,23 @@ import (
 
 	"github.com/kahnco/go-ddd-shop/internal/inventory/app"
 	"github.com/kahnco/go-ddd-shop/internal/platform/eventbus"
+	"github.com/kahnco/go-ddd-shop/internal/platform/idempotency"
 	"github.com/kahnco/go-ddd-shop/internal/platform/telemetry"
 )
 
 // OrderPlacedConsumer 는 주문 컨텍스트의 order.placed 이벤트를 받아
 // 재고 예약 유스케이스로 넘기는 인바운드 어댑터.
+//
+// 재고 예약은 멱등해야 한다 — 같은 order.placed 가 두 번 오면 재고가 두 번 깎이면 안 된다.
+// 이벤트 ID(아웃박스가 재전송해도 유지되는 값)로 중복을 걸러낸다.
 type OrderPlacedConsumer struct {
-	svc *app.ReservationService
-	log *slog.Logger
+	svc   *app.ReservationService
+	guard *idempotency.Guard
+	log   *slog.Logger
 }
 
 func NewOrderPlacedConsumer(svc *app.ReservationService, log *slog.Logger) *OrderPlacedConsumer {
-	return &OrderPlacedConsumer{svc: svc, log: log}
+	return &OrderPlacedConsumer{svc: svc, guard: idempotency.NewGuard(), log: log}
 }
 
 // orderPlacedPayload 는 order.placed 이벤트의 JSON 을 재고 컨텍스트가 이해하는 모양으로
@@ -52,7 +57,11 @@ func (c *OrderPlacedConsumer) Handle(env eventbus.Envelope) error {
 		cmd.Items = append(cmd.Items, app.ReservationItem{ProductID: it.ProductID, Quantity: it.Quantity})
 	}
 
-	if err := c.svc.OnOrderPlaced(ctx, cmd); err != nil {
+	// 이벤트 ID 로 중복을 거른다. 이미 처리한 이벤트면 재고를 다시 깎지 않는다(멱등).
+	err := c.guard.Do(env.ID, func() error {
+		return c.svc.OnOrderPlaced(ctx, cmd)
+	})
+	if err != nil {
 		log.Error("재고 예약 처리 실패", "order", p.OrderID, "err", err)
 		telemetry.RecordEventConsumed("order.placed", "error")
 		return err

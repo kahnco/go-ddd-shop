@@ -20,7 +20,7 @@ spec:
     spec:
       containers:
         - name: catalog
-          image: go-ddd-shop/catalog:part-11
+          image: go-ddd-shop/catalog:part-12
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8080

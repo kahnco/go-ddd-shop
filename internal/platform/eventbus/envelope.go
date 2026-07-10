@@ -10,6 +10,9 @@ import "encoding/json"
 // 이 덕에 하나의 주문 흐름을 여러 서비스에 걸쳐 같은 ID 로 추적할 수 있다.
 // 이 봉투 구조가 컨텍스트 간의 공통 계약이다(도메인 타입은 공유하지 않는다).
 type Envelope struct {
+	// ID 는 이 이벤트의 고유 식별자. 아웃박스가 재전송해도 같은 ID 를 유지하므로,
+	// 소비자가 이 ID 로 중복을 걸러낼 수 있다(멱등성의 열쇠). 직접 발행 시엔 비어 있을 수 있다.
+	ID   string            `json:"id,omitempty"`
 	Name string            `json:"name"`
 	Data json.RawMessage   `json:"data"`
 	Meta map[string]string `json:"meta,omitempty"`
