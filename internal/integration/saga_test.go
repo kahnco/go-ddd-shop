@@ -42,7 +42,11 @@ func wireOrdering(t *testing.T, bus *eventbus.Bus) (*orderinginfra.MemoryOrderRe
 	t.Helper()
 	repo := orderinginfra.NewMemoryOrderRepository()
 	pub := orderinginfra.NewNatsEventPublisher(bus, "ordering")
-	svc := orderingapp.NewOrderService(repo, pub, fixedOrderID{id: "order-1"})
+	prices := orderinginfra.NewProductProjection()
+	prices.SeedDefault("prod-A", 1000)
+	prices.SeedDefault("prod-B", 3000)
+	prices.SeedDefault("prod-X", 2_000_000) // 결제 한도 초과 테스트용
+	svc := orderingapp.NewOrderService(repo, pub, fixedOrderID{id: "order-1"}, prices)
 
 	saga := orderinginfra.NewOrderSagaConsumer(svc, discardLogger())
 	subs := map[string]eventbus.Handler{
@@ -75,8 +79,8 @@ func placeSampleOrder(t *testing.T, svc *orderingapp.OrderService) {
 	_, err := svc.PlaceOrder(context.Background(), orderingapp.PlaceOrderCommand{
 		CustomerID: "c1",
 		Items: []orderingapp.OrderItemInput{
-			{ProductID: "prod-A", Quantity: 2, UnitPrice: 1000},
-			{ProductID: "prod-B", Quantity: 1, UnitPrice: 3000},
+			{ProductID: "prod-A", Quantity: 2},
+			{ProductID: "prod-B", Quantity: 1},
 		},
 	})
 	if err != nil {
@@ -219,7 +223,7 @@ func TestSaga_결제실패면_취소되고_재고가_복원된다(t *testing.T) 
 	}
 	defer bus.Close()
 
-	stockRepo := wireInventory(t, bus, map[string]int{"prod-A": 10})
+	stockRepo := wireInventory(t, bus, map[string]int{"prod-X": 10})
 	wirePayment(t, bus)
 	orderRepo, orderSvc, _ := wireOrdering(t, bus)
 
@@ -231,10 +235,10 @@ func TestSaga_결제실패면_취소되고_재고가_복원된다(t *testing.T) 
 		t.Fatal(err)
 	}
 
-	// 총액 2,000,000원 → 결제 한도(1,000,000) 초과 → 거절.
+	// prod-X 가격 2,000,000원 → 결제 한도(1,000,000) 초과 → 거절.
 	if _, err := orderSvc.PlaceOrder(context.Background(), orderingapp.PlaceOrderCommand{
 		CustomerID: "c1",
-		Items:      []orderingapp.OrderItemInput{{ProductID: "prod-A", Quantity: 1, UnitPrice: 2_000_000}},
+		Items:      []orderingapp.OrderItemInput{{ProductID: "prod-X", Quantity: 1}},
 	}); err != nil {
 		t.Fatalf("PlaceOrder: %v", err)
 	}
@@ -254,15 +258,15 @@ func TestSaga_결제실패면_취소되고_재고가_복원된다(t *testing.T) 
 	// (이벤트 전파가 비동기라 잠깐 기다린 뒤 확인)
 	var restored bool
 	for i := 0; i < 50; i++ {
-		a, _ := stockRepo.FindByProduct(context.Background(), invDomainProductID("prod-A"))
-		if a.Available() == 10 {
+		x, _ := stockRepo.FindByProduct(context.Background(), invDomainProductID("prod-X"))
+		if x.Available() == 10 {
 			restored = true
 			break
 		}
 		<-time.After(50 * time.Millisecond)
 	}
 	if !restored {
-		a, _ := stockRepo.FindByProduct(context.Background(), invDomainProductID("prod-A"))
-		t.Fatalf("복원 후 prod-A 재고 = 10 이어야 하는데 %d", a.Available())
+		x, _ := stockRepo.FindByProduct(context.Background(), invDomainProductID("prod-X"))
+		t.Fatalf("복원 후 prod-X 재고 = 10 이어야 하는데 %d", x.Available())
 	}
 }

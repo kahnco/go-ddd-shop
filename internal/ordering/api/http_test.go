@@ -17,7 +17,11 @@ import (
 func newTestServer() http.Handler {
 	repo := infra.NewMemoryOrderRepository()
 	pub := infra.NewLogPublisher(slog.New(slog.NewTextHandler(nopWriter{}, nil)))
-	svc := app.NewOrderService(repo, pub, infra.RandomIDGenerator{})
+	// 가격 프로젝션에 데모 상품을 시드(카탈로그 대신).
+	prices := infra.NewProductProjection()
+	prices.SeedDefault("prod-A", 1000)
+	prices.SeedDefault("prod-B", 3000)
+	svc := app.NewOrderService(repo, pub, infra.RandomIDGenerator{}, prices)
 
 	mux := http.NewServeMux()
 	NewOrderHandler(svc).Register(mux)
@@ -31,9 +35,10 @@ func (nopWriter) Write(p []byte) (int, error) { return len(p), nil }
 func TestPlaceOrder_201_그리고_조회하면_같은_주문(t *testing.T) {
 	srv := newTestServer()
 
+	// 가격은 보내지 않는다 — 서버가 카탈로그에서 정한다(prod-A=1000, prod-B=3000 → 5000).
 	body := `{"customer_id":"cust-1","items":[
-		{"product_id":"prod-A","quantity":2,"unit_price":1000},
-		{"product_id":"prod-B","quantity":1,"unit_price":3000}]}`
+		{"product_id":"prod-A","quantity":2},
+		{"product_id":"prod-B","quantity":1}]}`
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/orders", bytes.NewBufferString(body))

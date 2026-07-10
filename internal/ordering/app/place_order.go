@@ -7,8 +7,7 @@ import (
 )
 
 // PlaceOrderCommand 는 "주문하기" 유스케이스의 입력.
-// 애플리케이션 계층의 입력은 원시 타입(string·int)으로 받고,
-// 도메인 값 객체로의 변환·검증은 유스케이스 안에서 한다.
+// 가격은 받지 않는다 — 클라이언트가 정하는 게 아니라 카탈로그가 정하기 때문이다.
 type PlaceOrderCommand struct {
 	CustomerID string
 	Items      []OrderItemInput
@@ -17,7 +16,6 @@ type PlaceOrderCommand struct {
 type OrderItemInput struct {
 	ProductID string
 	Quantity  int
-	UnitPrice int64
 }
 
 // OrderService 는 주문 관련 유스케이스를 담는 애플리케이션 서비스.
@@ -26,10 +24,11 @@ type OrderService struct {
 	repo      domain.OrderRepository
 	publisher EventPublisher
 	ids       IDGenerator
+	prices    ProductPriceLookup
 }
 
-func NewOrderService(repo domain.OrderRepository, publisher EventPublisher, ids IDGenerator) *OrderService {
-	return &OrderService{repo: repo, publisher: publisher, ids: ids}
+func NewOrderService(repo domain.OrderRepository, publisher EventPublisher, ids IDGenerator, prices ProductPriceLookup) *OrderService {
+	return &OrderService{repo: repo, publisher: publisher, ids: ids, prices: prices}
 }
 
 // PlaceOrder 유스케이스: 입력을 도메인으로 변환 → 애그리거트 생성 → 저장 → 이벤트 발행.
@@ -41,7 +40,8 @@ func (s *OrderService) PlaceOrder(ctx context.Context, cmd PlaceOrderCommand) (d
 		if err != nil {
 			return "", err
 		}
-		price, err := domain.NewMoney(item.UnitPrice)
+		// 가격은 요청이 아니라 카탈로그(프로젝션)에서 가져온다 — 클라이언트 가격 조작을 막는다.
+		price, err := s.prices.PriceOf(ctx, domain.ProductID(item.ProductID))
 		if err != nil {
 			return "", err
 		}

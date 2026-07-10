@@ -32,7 +32,7 @@ type placeOrderRequest struct {
 	Items      []struct {
 		ProductID string `json:"product_id"`
 		Quantity  int    `json:"quantity"`
-		UnitPrice int64  `json:"unit_price"`
+		// 가격(unit_price)은 받지 않는다 — 서버가 카탈로그에서 정한다.
 	} `json:"items"`
 }
 
@@ -61,7 +61,7 @@ func (h *OrderHandler) placeOrder(w http.ResponseWriter, r *http.Request) {
 	cmd := app.PlaceOrderCommand{CustomerID: req.CustomerID}
 	for _, it := range req.Items {
 		cmd.Items = append(cmd.Items, app.OrderItemInput{
-			ProductID: it.ProductID, Quantity: it.Quantity, UnitPrice: it.UnitPrice,
+			ProductID: it.ProductID, Quantity: it.Quantity,
 		})
 	}
 
@@ -104,7 +104,8 @@ func writeError(w http.ResponseWriter, err error) {
 		status = http.StatusNotFound
 	case errors.Is(err, domain.ErrEmptyOrder),
 		errors.Is(err, domain.ErrNegativeMoney),
-		errors.Is(err, domain.ErrNonPositiveQuantity):
+		errors.Is(err, domain.ErrNonPositiveQuantity),
+		errors.Is(err, domain.ErrUnknownProduct):
 		status = http.StatusBadRequest
 	}
 	writeJSON(w, status, map[string]string{"error": err.Error()})

@@ -39,7 +39,7 @@
 
 1. 사가를 닫다 — 결제 서비스와 자동 취소 (주문 PLACED→PAID→CONFIRMED, 재고 부족 시 자동 취소)
 2. 배송과 완전한 보상 — 배송 서비스로 SHIPPED 까지, 결제 실패 시 취소+예약 재고 복원
-3. 상품 카탈로그 — 진짜 상품과 가격
+3. 상품 카탈로그 — 가격의 소유자를 카탈로그로, 주문은 로컬 가격 프로젝션에서 조회(클라이언트 가격 조작 차단)
 4. 신뢰할 수 있는 이벤트 — 아웃박스와 멱등성
 
 주문 여정(part-10 기준): `PLACED → 재고예약 → 결제 → CONFIRMED → 배송 → SHIPPED`,
@@ -89,10 +89,10 @@ curl -X POST localhost:8080/orders \
 # 1) 로컬 클러스터 (80 포트를 호스트로 노출)
 kind create cluster --name shop --config deploy/kind/cluster.yaml
 
-# 2) 이미지 빌드 후 kind 로 로드 (주문·재고·결제·배송)
-for s in ordering inventory payment shipping; do
-  docker build --build-arg SERVICE=$s -t go-ddd-shop/$s:part-10 .
-  kind load docker-image go-ddd-shop/$s:part-10 --name shop
+# 2) 이미지 빌드 후 kind 로 로드 (주문·재고·결제·배송·카탈로그)
+for s in ordering inventory payment shipping catalog; do
+  docker build --build-arg SERVICE=$s -t go-ddd-shop/$s:part-11 .
+  kind load docker-image go-ddd-shop/$s:part-11 --name shop
 done
 
 # 3) Ingress 컨트롤러 + metrics-server(HPA용) + 앱 매니페스트

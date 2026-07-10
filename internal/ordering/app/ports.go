@@ -20,3 +20,11 @@ type EventPublisher interface {
 type IDGenerator interface {
 	NewOrderID() domain.OrderID
 }
+
+// ProductPriceLookup 은 상품의 "권위 있는 가격"을 돌려주는 포트.
+// 가격은 클라이언트가 아니라 카탈로그가 정한다 — 이 포트로 그 가격을 가져온다.
+// 구현은 카탈로그 이벤트로 갱신되는 로컬 프로젝션(읽기 모델)이 채운다.
+// 카탈로그에 없는 상품이면 domain.ErrUnknownProduct 를 돌려준다.
+type ProductPriceLookup interface {
+	PriceOf(ctx context.Context, productID domain.ProductID) (domain.Money, error)
+}

@@ -10,6 +10,18 @@ services:
       - "8222:8222" # 모니터링(http://localhost:8222)
     command: ["--http_port", "8222"]
 
+  catalog:
+    build:
+      context: .
+      args:
+        SERVICE: catalog
+    environment:
+      NATS_URL: nats://nats:4222
+    ports:
+      - "8084:8080"
+    depends_on:
+      - nats
+
   ordering:
     build:
       context: .
@@ -17,10 +29,12 @@ services:
         SERVICE: ordering
     environment:
       NATS_URL: nats://nats:4222 # compose 네트워크에서 서비스 이름이 곧 호스트명
+      CATALOG_URL: http://catalog:8080 # 가격 프로젝션 부트스트랩
     ports:
       - "8080:8080"
     depends_on:
       - nats
+      - catalog
 
   inventory:
     build:

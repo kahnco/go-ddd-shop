@@ -10,4 +10,5 @@ var (
 	ErrNonPositiveQuantity     = errors.New("수량은 1 이상이어야 합니다")
 	ErrInvalidStatusTransition = errors.New("허용되지 않은 상태 전이")
 	ErrOrderNotFound           = errors.New("주문을 찾을 수 없습니다")
+	ErrUnknownProduct          = errors.New("카탈로그에 없는 상품입니다")
 )

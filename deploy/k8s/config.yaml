@@ -8,6 +8,7 @@ metadata:
   namespace: shop
 data:
   NATS_URL: "nats://nats:4222"
+  CATALOG_URL: "http://catalog" # 주문 서비스가 가격 프로젝션을 부트스트랩하는 곳
 ---
 # ⚠️ 데모용. 실서비스에서는 평문 Secret 을 git 에 커밋하지 않는다 —
 # Sealed Secrets·SOPS·External Secrets 등으로 암호화하거나 외부 볼트에서 주입한다.
