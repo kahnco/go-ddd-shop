@@ -1,33 +1,37 @@
-# 결제 서비스. 재고 예약(stock.reserved)을 구독해 결제를 처리하는 소비자.
-# 재고 서비스처럼 비즈니스 입구는 이벤트뿐이라, HTTP 는 관찰성·probe 용으로만 연다.
+# 읽기 모델 서비스(CQRS 읽기 쪽). 주문 이벤트를 구독해 조회용 뷰를 만들고
+# "내 주문 목록"을 답한다. 쓰기(주문 서비스)와 분리된 조회 전용 서비스다.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: payment
+  name: readmodel
   namespace: shop
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: payment
+      app: readmodel
   template:
     metadata:
       labels:
-        app: payment
+        app: readmodel
       annotations:
         prometheus.io/scrape: "true"
         prometheus.io/port: "8080"
         prometheus.io/path: "/metrics"
     spec:
       containers:
-        - name: payment
-          image: go-ddd-shop/payment:part-15
+        - name: readmodel
+          image: go-ddd-shop/readmodel:part-15
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8080
           envFrom:
             - configMapRef:
-                name: shop-config # NATS_URL
+                name: shop-config # NATS_URL, NATS_JETSTREAM
+          readinessProbe:
+            httpGet: { path: /healthz, port: 8080 }
+            initialDelaySeconds: 3
+            periodSeconds: 5
           livenessProbe:
             httpGet: { path: /healthz, port: 8080 }
             initialDelaySeconds: 5
@@ -35,3 +39,15 @@ spec:
           resources:
             requests: { cpu: "50m", memory: "32Mi" }
             limits: { cpu: "250m", memory: "128Mi" }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: readmodel
+  namespace: shop
+spec:
+  selector:
+    app: readmodel
+  ports:
+    - port: 80
+      targetPort: 8080

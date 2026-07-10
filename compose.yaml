@@ -97,3 +97,16 @@ services:
     depends_on:
       - customer
       - ordering
+
+  readmodel:
+    build:
+      context: .
+      args:
+        SERVICE: readmodel
+    environment:
+      NATS_URL: nats://nats:4222
+      NATS_JETSTREAM: "1"
+    ports:
+      - "8087:8080"
+    depends_on:
+      - nats
