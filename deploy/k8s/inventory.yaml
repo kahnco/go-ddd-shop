@@ -21,7 +21,7 @@ spec:
     spec:
       containers:
         - name: inventory
-          image: go-ddd-shop/inventory:part-13
+          image: go-ddd-shop/inventory:part-14
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8080

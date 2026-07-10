@@ -19,6 +19,7 @@ var shopStreams = []struct {
 	{"PAYMENT", []string{"payment.>"}},
 	{"SHIPPING", []string{"shipping.>"}},
 	{"CATALOG", []string{"catalog.>"}},
+	{"CUSTOMER", []string{"customer.>"}},
 }
 
 // ensureStreams 는 컨텍스트별 스트림을 만든다(이미 있으면 그대로 둔다).

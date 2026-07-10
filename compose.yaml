@@ -70,3 +70,30 @@ services:
       NATS_JETSTREAM: "1"
     depends_on:
       - nats
+
+  customer:
+    build:
+      context: .
+      args:
+        SERVICE: customer
+    environment:
+      NATS_URL: nats://nats:4222
+      NATS_JETSTREAM: "1"
+    ports:
+      - "8085:8080"
+    depends_on:
+      - nats
+
+  cart:
+    build:
+      context: .
+      args:
+        SERVICE: cart
+    environment:
+      CUSTOMER_URL: http://customer:8080
+      ORDERING_URL: http://ordering:8080
+    ports:
+      - "8086:8080"
+    depends_on:
+      - customer
+      - ordering

@@ -1,39 +1,34 @@
-# 주문 서비스. 이제 저장소가 PostgreSQL 이라 replica 2개가 같은 상태를 공유한다.
+# 회원 서비스. 회원 등록·조회. 장바구니가 결제 시 http://customer/customers/{id} 로 확인한다.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: ordering
+  name: customer
   namespace: shop
 spec:
-  replicas: 2
+  replicas: 1
   selector:
     matchLabels:
-      app: ordering
+      app: customer
   template:
     metadata:
       labels:
-        app: ordering
+        app: customer
       annotations:
-        # 프로메테우스가 이 파드의 /metrics 를 스크레이프하도록 알린다.
         prometheus.io/scrape: "true"
         prometheus.io/port: "8080"
         prometheus.io/path: "/metrics"
     spec:
       containers:
-        - name: ordering
-          image: go-ddd-shop/ordering:part-14
+        - name: customer
+          image: go-ddd-shop/customer:part-14
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8080
-          # 설정은 ConfigMap(NATS_URL)에서, 비밀은 Secret(DATABASE_URL)에서 주입.
           envFrom:
             - configMapRef:
-                name: shop-config
-            - secretRef:
-                name: ordering-secret
-          # readiness: DB 까지 준비돼야 트래픽을 받는다. liveness: 프로세스 생존만 확인.
+                name: shop-config # NATS_URL, NATS_JETSTREAM
           readinessProbe:
-            httpGet: { path: /readyz, port: 8080 }
+            httpGet: { path: /healthz, port: 8080 }
             initialDelaySeconds: 3
             periodSeconds: 5
           livenessProbe:
@@ -47,11 +42,11 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: ordering
+  name: customer
   namespace: shop
 spec:
   selector:
-    app: ordering
+    app: customer
   ports:
     - port: 80
       targetPort: 8080
