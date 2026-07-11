@@ -124,6 +124,9 @@ func main() {
 	handler := telemetry.WrapHTTP(telemetry.Middleware(logger, mux), "ordering")
 
 	addr := ":8080"
+	if v := os.Getenv("HTTP_ADDR"); v != "" {
+		addr = v
+	}
 	logger.Info("ordering service 시작", "addr", addr)
 	if err := http.ListenAndServe(addr, handler); err != nil {
 		logger.Error("서버 종료", "err", err)

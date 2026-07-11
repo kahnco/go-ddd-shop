@@ -63,7 +63,13 @@ func (b *Bus) Publish(subject string, env Envelope) error {
 		return err
 	}
 	if b.js != nil {
-		_, err := b.js.Publish(subject, raw) // 발행 = 스트림에 저장(ack 까지 대기)
+		// 봉투 ID 를 Nats-Msg-Id 로 실으면, JetStream 이 중복 윈도우 내에서 같은 ID 를 걸러낸다.
+		// 아웃박스 릴레이가 같은 이벤트를 두 번 발행해도 브로커가 발행측에서 중복을 제거한다.
+		var opts []nats.PubOpt
+		if env.ID != "" {
+			opts = append(opts, nats.MsgId(env.ID))
+		}
+		_, err := b.js.Publish(subject, raw, opts...) // 발행 = 스트림에 저장(ack 까지 대기)
 		return err
 	}
 	if err := b.nc.Publish(subject, raw); err != nil {

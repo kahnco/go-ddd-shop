@@ -3,6 +3,7 @@ package eventbus
 import (
 	"os"
 	"strings"
+	"time"
 
 	"github.com/nats-io/nats.go"
 )
@@ -27,9 +28,10 @@ var shopStreams = []struct {
 func (b *Bus) ensureStreams() error {
 	for _, s := range shopStreams {
 		_, err := b.js.AddStream(&nats.StreamConfig{
-			Name:     s.Name,
-			Subjects: s.Subjects,
-			Storage:  nats.FileStorage,
+			Name:       s.Name,
+			Subjects:   s.Subjects,
+			Storage:    nats.FileStorage,
+			Duplicates: 2 * time.Minute, // Nats-Msg-Id 중복 제거 윈도우
 		})
 		if err != nil && !strings.Contains(err.Error(), "already in use") {
 			return err

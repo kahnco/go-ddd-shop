@@ -97,8 +97,8 @@ kind create cluster --name shop --config deploy/kind/cluster.yaml
 
 # 2) 이미지 빌드 후 kind 로 로드 (주문·재고·결제·배송·카탈로그)
 for s in ordering inventory payment shipping catalog customer cart readmodel; do
-  docker build --build-arg SERVICE=$s -t go-ddd-shop/$s:part-16 .
-  kind load docker-image go-ddd-shop/$s:part-16 --name shop
+  docker build --build-arg SERVICE=$s -t go-ddd-shop/$s:part-17 .
+  kind load docker-image go-ddd-shop/$s:part-17 --name shop
 done
 
 # 3) Ingress 컨트롤러 + metrics-server(HPA용) + 앱 매니페스트

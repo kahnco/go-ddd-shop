@@ -21,7 +21,7 @@ spec:
     spec:
       containers:
         - name: readmodel
-          image: go-ddd-shop/readmodel:part-16
+          image: go-ddd-shop/readmodel:part-17
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8080

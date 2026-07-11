@@ -61,7 +61,19 @@ CREATE TABLE IF NOT EXISTS outbox (
     traceparent    TEXT,
     published_at   TIMESTAMPTZ
 );`
-	if _, err := r.pool.Exec(ctx, ddl); err != nil {
+	// 여러 replica 가 동시에 기동하면 CREATE TABLE IF NOT EXISTS 가 pg_type 카탈로그에서
+	// 충돌(SQLSTATE 23505)한다. 자문 잠금으로 스키마 생성을 직렬화해 이 경합을 없앤다.
+	conn, err := r.pool.Acquire(ctx)
+	if err != nil {
+		return err
+	}
+	defer conn.Release()
+	if _, err := conn.Exec(ctx, `SELECT pg_advisory_lock(727274)`); err != nil {
+		return err
+	}
+	defer conn.Exec(context.Background(), `SELECT pg_advisory_unlock(727274)`)
+
+	if _, err := conn.Exec(ctx, ddl); err != nil {
 		return fmt.Errorf("스키마 생성: %w", err)
 	}
 	return nil
@@ -160,6 +172,55 @@ func (r *PostgresOrderRepository) MarkOutboxPublished(ctx context.Context, ids [
 	}
 	_, err := r.pool.Exec(ctx, `UPDATE outbox SET published_at = now() WHERE id = ANY($1)`, ids)
 	return err
+}
+
+// DispatchOutbox 는 미발행 이벤트를 한 트랜잭션 안에서 잠그고(FOR UPDATE SKIP LOCKED),
+// 각각을 publish 로 내보낸 뒤 발행 표시하고 커밋한다. 반환값은 발행한 건수.
+//
+// SKIP LOCKED 가 핵심이다 — 여러 릴레이(주문 replica 여럿)가 동시에 돌아도, 각자 "잠기지 않은"
+// 행만 집으므로 같은 이벤트를 두 번 집지 않는다. 별도 리더 선출 없이 안전하게 병렬 처리된다.
+func (r *PostgresOrderRepository) DispatchOutbox(ctx context.Context, publish func(OutboxMessage) error) (int, error) {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback(ctx)
+
+	rows, err := tx.Query(ctx, `
+        SELECT id, subject, event_name, payload, COALESCE(correlation_id, ''), COALESCE(traceparent, '')
+        FROM outbox WHERE published_at IS NULL
+        ORDER BY id LIMIT 100
+        FOR UPDATE SKIP LOCKED`)
+	if err != nil {
+		return 0, err
+	}
+	var msgs []OutboxMessage
+	for rows.Next() {
+		var m OutboxMessage
+		if err := rows.Scan(&m.ID, &m.Subject, &m.EventName, &m.Payload, &m.CorrelationID, &m.Traceparent); err != nil {
+			rows.Close()
+			return 0, err
+		}
+		msgs = append(msgs, m)
+	}
+	rows.Close() // 잠금은 커밋까지 유지된다(커서 닫아도 안 풀림)
+	if err := rows.Err(); err != nil {
+		return 0, err
+	}
+
+	var published []int64
+	for _, m := range msgs {
+		if err := publish(m); err != nil {
+			break // 실패하면 멈추고, 커밋 안 된 나머지는 다음 주기에 다시 잠근다
+		}
+		published = append(published, m.ID)
+	}
+	if len(published) > 0 {
+		if _, err := tx.Exec(ctx, `UPDATE outbox SET published_at = now() WHERE id = ANY($1)`, published); err != nil {
+			return 0, err
+		}
+	}
+	return len(published), tx.Commit(ctx)
 }
 
 // FindByID 는 주문과 항목을 읽어 애그리거트로 되살린다(reconstitution).

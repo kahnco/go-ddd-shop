@@ -10,10 +10,10 @@ import (
 	"github.com/kahnco/go-ddd-shop/internal/platform/telemetry"
 )
 
-// OutboxStore 는 릴레이가 필요로 하는 아웃박스 접근(가져오기·발행표시)만 추린 포트.
+// OutboxStore 는 릴레이가 필요로 하는 아웃박스 디스패치 포트.
+// 잠금·발행·표시를 한 트랜잭션으로 묶어(SKIP LOCKED), 여러 릴레이가 안전하게 병렬로 돈다.
 type OutboxStore interface {
-	FetchOutbox(ctx context.Context, limit int) ([]OutboxMessage, error)
-	MarkOutboxPublished(ctx context.Context, ids []int64) error
+	DispatchOutbox(ctx context.Context, publish func(OutboxMessage) error) (int, error)
 }
 
 // OutboxRelay 는 아웃박스에 쌓인 이벤트를 주기적으로 읽어 브로커로 발행하는 디스패처.
@@ -45,39 +45,28 @@ func (r *OutboxRelay) Run(ctx context.Context) {
 }
 
 func (r *OutboxRelay) dispatch(ctx context.Context) {
-	msgs, err := r.store.FetchOutbox(ctx, 100)
+	// 잠금·발행·표시가 한 트랜잭션. SKIP LOCKED 로 다른 릴레이와 행이 겹치지 않는다.
+	_, err := r.store.DispatchOutbox(ctx, r.publish)
 	if err != nil {
-		r.log.Error("아웃박스 조회 실패", "err", err)
-		return
+		r.log.Error("아웃박스 디스패치 실패(다음 주기에 재시도)", "err", err)
 	}
+}
 
-	var published []int64
-	for _, m := range msgs {
-		env := eventbus.Envelope{
-			ID:   strconv.FormatInt(m.ID, 10), // 재전송돼도 같은 ID → 소비자가 중복 제거 가능
-			Name: m.EventName,
-			Data: m.Payload,
-		}
-		meta := map[string]string{}
-		if m.CorrelationID != "" {
-			meta[telemetry.MetaCorrelationID] = m.CorrelationID
-		}
-		if m.Traceparent != "" {
-			meta["traceparent"] = m.Traceparent // 저장해 둔 trace 컨텍스트를 소비자에게 잇는다
-		}
-		if len(meta) > 0 {
-			env.Meta = meta
-		}
-		if err := r.bus.Publish(m.Subject, env); err != nil {
-			r.log.Error("아웃박스 발행 실패(다음 주기에 재시도)", "id", m.ID, "err", err)
-			break // 순서를 지키려 여기서 멈추고 다음 주기에 이어서
-		}
-		published = append(published, m.ID)
+func (r *OutboxRelay) publish(m OutboxMessage) error {
+	env := eventbus.Envelope{
+		ID:   strconv.FormatInt(m.ID, 10), // 안정적 ID → JetStream Nats-Msg-Id 중복 제거 + 소비자 멱등
+		Name: m.EventName,
+		Data: m.Payload,
 	}
-
-	if err := r.store.MarkOutboxPublished(ctx, published); err != nil {
-		// 발행은 됐지만 표시에 실패 → 다음 주기에 같은 이벤트를 다시 보낸다.
-		// 그래서 소비자의 멱등성이 반드시 필요하다(at-least-once 의 대가).
-		r.log.Error("아웃박스 발행표시 실패(중복 전송 가능)", "err", err)
+	meta := map[string]string{}
+	if m.CorrelationID != "" {
+		meta[telemetry.MetaCorrelationID] = m.CorrelationID
 	}
+	if m.Traceparent != "" {
+		meta["traceparent"] = m.Traceparent // 저장해 둔 trace 컨텍스트를 소비자에게 잇는다
+	}
+	if len(meta) > 0 {
+		env.Meta = meta
+	}
+	return r.bus.Publish(m.Subject, env)
 }
