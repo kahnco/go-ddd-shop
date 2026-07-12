@@ -37,34 +37,34 @@ func NewReservationService(stock domain.StockRepository, reservations domain.Res
 // 분산 환경에서 흉내 내는, 사가(saga)의 축소판이다.
 func (s *ReservationService) OnOrderPlaced(ctx context.Context, cmd ReserveForOrderCommand) error {
 	type reserved struct {
-		item *domain.StockItem
-		qty  int
+		productID string
+		qty       int
 	}
 	var done []reserved
 
-	// 지금까지 잡은 예약을 전부 되돌린다(보상).
+	// 지금까지 잡은 예약을 전부 되돌린다(보상). 각 복원도 원자적 Update 로.
 	rollback := func() {
 		for _, r := range done {
-			r.item.Release(r.qty)
-			_ = s.stock.Save(ctx, r.item)
+			_ = s.stock.Update(ctx, domain.ProductID(r.productID), func(si *domain.StockItem) error {
+				si.Release(r.qty)
+				return nil
+			})
 		}
 	}
 
 	for _, it := range cmd.Items {
-		item, err := s.stock.FindByProduct(ctx, domain.ProductID(it.ProductID))
+		// 조회·차감·저장을 한 원자 단위로 — 동시 예약과 겹쳐도 재고가 유실되지 않는다.
+		err := s.stock.Update(ctx, domain.ProductID(it.ProductID), func(si *domain.StockItem) error {
+			return si.Reserve(it.Quantity)
+		})
 		if err != nil {
 			rollback()
-			return s.publishFailed(ctx, cmd.OrderID, err)
-		}
-		if err := item.Reserve(it.Quantity); err != nil {
-			rollback()
-			return s.publishFailed(ctx, cmd.OrderID, err)
-		}
-		if err := s.stock.Save(ctx, item); err != nil {
-			rollback()
+			if isReservationFailure(err) {
+				return s.publishFailed(ctx, cmd.OrderID, err)
+			}
 			return err // 인프라 오류는 그대로 올려보낸다(재시도 대상)
 		}
-		done = append(done, reserved{item: item, qty: it.Quantity})
+		done = append(done, reserved{productID: it.ProductID, qty: it.Quantity})
 	}
 
 	// 예약 성공 → 무엇을 예약했는지 기록해 둔다. 나중에 취소되면 이걸 보고 되돌린다.
@@ -91,14 +91,10 @@ func (s *ReservationService) OnOrderCancelled(ctx context.Context, orderID strin
 	}
 
 	for _, item := range reservation.Items() {
-		stock, err := s.stock.FindByProduct(ctx, item.ProductID)
-		if err != nil {
-			continue // 재고 항목을 못 찾으면 건너뛴다(방어적)
-		}
-		stock.Release(item.Quantity)
-		if err := s.stock.Save(ctx, stock); err != nil {
-			return err
-		}
+		_ = s.stock.Update(ctx, item.ProductID, func(si *domain.StockItem) error {
+			si.Release(item.Quantity)
+			return nil
+		})
 	}
 	// 되돌렸으니 기록을 지운다 — 중복 취소가 와도 두 번 복원하지 않는다(멱등).
 	return s.reservations.Delete(ctx, domain.OrderID(orderID))
@@ -108,14 +104,10 @@ func (s *ReservationService) OnOrderCancelled(ctx context.Context, orderID strin
 // 반품된 항목은 이벤트에 실려 오므로, 예약 기록 없이도 처리할 수 있다.
 func (s *ReservationService) OnReturnRequested(ctx context.Context, cmd ReserveForOrderCommand) error {
 	for _, it := range cmd.Items {
-		stock, err := s.stock.FindByProduct(ctx, domain.ProductID(it.ProductID))
-		if err != nil {
-			continue // 모르는 상품이면 건너뛴다(방어적)
-		}
-		stock.Restock(it.Quantity)
-		if err := s.stock.Save(ctx, stock); err != nil {
-			return err
-		}
+		_ = s.stock.Update(ctx, domain.ProductID(it.ProductID), func(si *domain.StockItem) error {
+			si.Restock(it.Quantity)
+			return nil
+		})
 	}
 	return s.publisher.Publish(ctx, domain.StockRestocked{OrderID: domain.OrderID(cmd.OrderID)})
 }
@@ -125,4 +117,11 @@ func (s *ReservationService) publishFailed(ctx context.Context, orderID string, 
 		OrderID: domain.OrderID(orderID),
 		Reason:  cause.Error(),
 	})
+}
+
+// isReservationFailure 는 "예약 실패"로 다뤄 보상+실패이벤트로 넘길 도메인 오류인지 판별한다.
+func isReservationFailure(err error) bool {
+	return errors.Is(err, domain.ErrStockItemNotFound) ||
+		errors.Is(err, domain.ErrInsufficientStock) ||
+		errors.Is(err, domain.ErrNonPositiveQuantity)
 }

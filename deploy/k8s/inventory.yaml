@@ -6,7 +6,7 @@ metadata:
   name: inventory
   namespace: shop
 spec:
-  replicas: 1
+  replicas: 2 # 재고를 Postgres(행 잠금)로 공유하므로 여러 replica 로 안전하게 굴린다
   selector:
     matchLabels:
       app: inventory
@@ -21,13 +21,15 @@ spec:
     spec:
       containers:
         - name: inventory
-          image: go-ddd-shop/inventory:part-19
+          image: go-ddd-shop/inventory:part-20
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8080
           envFrom:
             - configMapRef:
-                name: shop-config # NATS_URL
+                name: shop-config # NATS_URL, NATS_JETSTREAM, OTEL, …
+            - secretRef:
+                name: ordering-secret # DATABASE_URL(같은 Postgres 공유)
           livenessProbe:
             httpGet: { path: /healthz, port: 8080 }
             initialDelaySeconds: 5

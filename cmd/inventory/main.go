@@ -9,6 +9,7 @@ import (
 	"syscall"
 
 	"github.com/kahnco/go-ddd-shop/internal/inventory/app"
+	"github.com/kahnco/go-ddd-shop/internal/inventory/domain"
 	"github.com/kahnco/go-ddd-shop/internal/inventory/infra"
 	"github.com/kahnco/go-ddd-shop/internal/platform/eventbus"
 	"github.com/kahnco/go-ddd-shop/internal/platform/telemetry"
@@ -31,14 +32,31 @@ func main() {
 	}
 	defer bus.Close()
 
-	// 데모용 초기 재고.
-	repo := infra.NewMemoryStockRepository()
-	repo.Seed("prod-A", 10)
-	repo.Seed("prod-B", 5)
+	// 재고 저장소 선택. DATABASE_URL 이 있으면 PostgreSQL(행 잠금으로 동시성 안전 + 여러
+	// replica 가 재고를 공유), 없으면 인메모리(원자 Update 로 단일 인스턴스 동시성은 안전).
+	var stockRepo domain.StockRepository
+	var reservations domain.ReservationRepository
+	if dsn := os.Getenv("DATABASE_URL"); dsn != "" {
+		pg, err := infra.NewPostgresStore(context.Background(), dsn)
+		if err != nil {
+			logger.Error("postgres 연결 실패", "err", err)
+			os.Exit(1)
+		}
+		defer pg.Close()
+		_ = pg.Seed(context.Background(), "prod-A", 10)
+		_ = pg.Seed(context.Background(), "prod-B", 5)
+		stockRepo, reservations = pg, pg
+		logger.Info("재고 저장소 = PostgreSQL(다중 replica 안전)")
+	} else {
+		mem := infra.NewMemoryStockRepository()
+		mem.Seed("prod-A", 10)
+		mem.Seed("prod-B", 5)
+		stockRepo = mem
+		reservations = infra.NewMemoryReservationRepository()
+	}
 
-	reservations := infra.NewMemoryReservationRepository()
 	publisher := infra.NewNatsEventPublisher(bus, "inventory")
-	svc := app.NewReservationService(repo, reservations, publisher)
+	svc := app.NewReservationService(stockRepo, reservations, publisher)
 
 	placedConsumer := infra.NewOrderPlacedConsumer(svc, logger)
 	if err := bus.Subscribe("ordering.order.placed", "inventory", placedConsumer.Handle); err != nil {

@@ -20,7 +20,7 @@ spec:
     spec:
       containers:
         - name: customer
-          image: go-ddd-shop/customer:part-19
+          image: go-ddd-shop/customer:part-20
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8080

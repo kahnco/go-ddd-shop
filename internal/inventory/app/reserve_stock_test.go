@@ -28,9 +28,12 @@ func (r *fakeStockRepo) FindByProduct(_ context.Context, id domain.ProductID) (*
 	}
 	return item, nil
 }
-func (r *fakeStockRepo) Save(_ context.Context, item *domain.StockItem) error {
-	r.items[item.ProductID()] = item
-	return nil
+func (r *fakeStockRepo) Update(_ context.Context, id domain.ProductID, mutate func(*domain.StockItem) error) error {
+	item, ok := r.items[id]
+	if !ok {
+		return domain.ErrStockItemNotFound
+	}
+	return mutate(item)
 }
 
 type fakePublisher struct{ published []domain.DomainEvent }
