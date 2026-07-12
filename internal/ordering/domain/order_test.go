@@ -125,6 +125,43 @@ func TestOrder_생성_직후_취소_가능(t *testing.T) {
 	}
 }
 
+func TestOrder_배송된_주문은_반품_요청되고_환불된다(t *testing.T) {
+	o, _ := PlaceOrder("order-1", "cust-1", sampleLines(t))
+	_ = o.MarkPaid()
+	_ = o.Confirm()
+	_ = o.Ship()
+	_ = o.PullEvents() // 이전 이벤트 비우기
+
+	if err := o.RequestReturn(); err != nil {
+		t.Fatalf("배송된 주문은 반품 가능해야 하는데: %v", err)
+	}
+	if o.Status() != StatusReturnRequested {
+		t.Fatalf("반품 요청 후 상태 = RETURN_REQUESTED 여야 하는데 %s", o.Status())
+	}
+	ev, ok := o.PullEvents()[0].(OrderReturnRequested)
+	if !ok {
+		t.Fatalf("OrderReturnRequested 여야 함")
+	}
+	// 환불·재입고에 쓸 금액과 항목이 실려야 한다.
+	if ev.Amount.Amount() != 5000 || len(ev.Items) != 2 {
+		t.Fatalf("반품 이벤트에 금액 5000·항목 2개가 실려야: %+v", ev)
+	}
+
+	if err := o.MarkRefunded(); err != nil {
+		t.Fatalf("반품 요청된 주문은 환불 가능해야 하는데: %v", err)
+	}
+	if o.Status() != StatusRefunded {
+		t.Fatalf("환불 후 상태 = REFUNDED 여야 하는데 %s", o.Status())
+	}
+}
+
+func TestOrder_배송안된_주문은_반품_불가(t *testing.T) {
+	o, _ := PlaceOrder("order-1", "cust-1", sampleLines(t)) // PLACED
+	if err := o.RequestReturn(); !errors.Is(err, ErrInvalidStatusTransition) {
+		t.Fatalf("배송 안 된 주문 반품은 ErrInvalidStatusTransition 여야 하는데: %v", err)
+	}
+}
+
 func TestMoney_음수는_에러(t *testing.T) {
 	if _, err := NewMoney(-1); !errors.Is(err, ErrNegativeMoney) {
 		t.Fatalf("음수 금액은 ErrNegativeMoney 여야 하는데: %v", err)

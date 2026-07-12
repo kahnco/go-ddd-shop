@@ -34,12 +34,17 @@ func main() {
 	publisher := infra.NewNatsEventPublisher(bus)
 	svc := app.NewPaymentService(repo, publisher)
 	consumer := infra.NewStockReservedConsumer(svc, logger)
-
 	if err := bus.Subscribe("inventory.stock.reserved", "payment", consumer.Handle); err != nil {
-		logger.Error("구독 실패", "err", err)
+		logger.Error("stock.reserved 구독 실패", "err", err)
 		os.Exit(1)
 	}
-	logger.Info("payment 서비스 시작 — stock.reserved 구독 중", "nats", url)
+	// 반품 요청 → 환불
+	refundConsumer := infra.NewReturnRequestedConsumer(svc, logger)
+	if err := bus.Subscribe("ordering.order.return_requested", "payment", refundConsumer.Handle); err != nil {
+		logger.Error("order.return_requested 구독 실패", "err", err)
+		os.Exit(1)
+	}
+	logger.Info("payment 서비스 시작 — stock.reserved·order.return_requested 구독 중", "nats", url)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {

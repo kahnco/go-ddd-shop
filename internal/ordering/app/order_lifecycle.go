@@ -44,6 +44,36 @@ func (s *OrderService) ShipOrder(ctx context.Context, id domain.OrderID) error {
 	return s.publisher.Publish(ctx, order.PullEvents()...)
 }
 
+// RequestReturn 은 고객의 반품 요청에 반응해 배송된 주문의 반품을 시작한다(사후 보상 사가).
+func (s *OrderService) RequestReturn(ctx context.Context, id domain.OrderID) error {
+	order, err := s.repo.FindByID(ctx, id)
+	if err != nil {
+		return err
+	}
+	if err := order.RequestReturn(); err != nil {
+		return err
+	}
+	if err := s.repo.Save(ctx, order); err != nil {
+		return err
+	}
+	return s.publisher.Publish(ctx, order.PullEvents()...)
+}
+
+// MarkOrderRefunded 는 환불 완료(payment.refunded)에 반응해 주문을 환불완료로 전이한다.
+func (s *OrderService) MarkOrderRefunded(ctx context.Context, id domain.OrderID) error {
+	order, err := s.repo.FindByID(ctx, id)
+	if err != nil {
+		return err
+	}
+	if err := order.MarkRefunded(); err != nil {
+		return err
+	}
+	if err := s.repo.Save(ctx, order); err != nil {
+		return err
+	}
+	return s.publisher.Publish(ctx, order.PullEvents()...)
+}
+
 // CancelOrder 는 재고 부족·결제 실패 등에 반응해 주문을 취소한다(사가의 보상 경로).
 func (s *OrderService) CancelOrder(ctx context.Context, id domain.OrderID) error {
 	order, err := s.repo.FindByID(ctx, id)

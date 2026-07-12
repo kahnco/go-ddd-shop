@@ -38,3 +38,17 @@ func (s *PaymentService) OnStockReserved(ctx context.Context, cmd ProcessPayment
 	}
 	return s.publisher.Publish(ctx, payment.PullEvents()...)
 }
+
+// RefundCommand 는 "이 주문의 반품이 요청됐으니 환불하라"는 입력.
+type RefundCommand struct {
+	OrderID string
+	Amount  int64
+}
+
+// OnReturnRequested 는 반품 요청에 반응해 환불을 처리하고 PaymentRefunded 를 발행한다.
+// 데모용 목업 — 실제라면 PG 게이트웨이의 환불 API 를 호출한다.
+func (s *PaymentService) OnReturnRequested(ctx context.Context, cmd RefundCommand) error {
+	return s.publisher.Publish(ctx, domain.PaymentRefunded{
+		OrderID: domain.OrderID(cmd.OrderID), Amount: cmd.Amount,
+	})
+}

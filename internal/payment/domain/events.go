@@ -22,3 +22,11 @@ type PaymentFailed struct {
 }
 
 func (PaymentFailed) EventName() string { return "payment.failed" }
+
+// PaymentRefunded — 환불 완료. 주문 컨텍스트가 구독해 주문을 환불완료로 마무리한다.
+type PaymentRefunded struct {
+	OrderID OrderID `json:"order_id"`
+	Amount  int64   `json:"amount"`
+}
+
+func (PaymentRefunded) EventName() string { return "payment.refunded" }

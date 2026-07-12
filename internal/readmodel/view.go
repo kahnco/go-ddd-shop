@@ -74,8 +74,8 @@ func (s *MemoryStore) SetStatus(orderID, status string) {
 	}
 	s.counts[v.Status]--
 	s.counts[status]++
-	if status == "CANCELLED" {
-		s.revenue -= v.Total // 취소된 주문은 매출에서 뺀다
+	if status == "CANCELLED" || status == "REFUNDED" {
+		s.revenue -= v.Total // 취소·환불된 주문은 매출에서 뺀다
 	}
 	v.Status = status
 	s.orders[orderID] = v

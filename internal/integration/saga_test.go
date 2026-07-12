@@ -34,6 +34,10 @@ func wirePayment(t *testing.T, bus *eventbus.Bus) {
 	if err := bus.Subscribe("inventory.stock.reserved", "payment", consumer.Handle); err != nil {
 		t.Fatalf("payment 구독: %v", err)
 	}
+	refund := paymentinfra.NewReturnRequestedConsumer(svc, discardLogger())
+	if err := bus.Subscribe("ordering.order.return_requested", "payment", refund.Handle); err != nil {
+		t.Fatalf("payment 환불 구독: %v", err)
+	}
 }
 
 // wireOrdering 은 주문 서비스 + 핵심 사가 구독을 구성하고, 검사용 저장소·서비스·사가를 돌려준다.
@@ -52,6 +56,7 @@ func wireOrdering(t *testing.T, bus *eventbus.Bus) (*orderinginfra.MemoryOrderRe
 	subs := map[string]eventbus.Handler{
 		"payment.completed":                  saga.OnPaymentCompleted,
 		"payment.failed":                     saga.OnPaymentFailed,
+		"payment.refunded":                   saga.OnPaymentRefunded,
 		"inventory.stock.reservation_failed": saga.OnStockReservationFailed,
 	}
 	for subject, handler := range subs {
@@ -207,6 +212,70 @@ func TestSaga_전체흐름이면_주문이_배송중까지_간다(t *testing.T) 
 	got, _ := orderRepo.FindByID(context.Background(), "order-1")
 	if got.Status() != orderingdomain.StatusShipped {
 		t.Fatalf("주문 상태 = SHIPPED 여야 하는데 %s", got.Status())
+	}
+}
+
+// 반품: 배송된 주문의 반품을 요청하면 환불되고 재고가 재입고되며 주문이 REFUNDED 가 되는지 본다.
+func TestSaga_반품요청이면_환불되고_재입고된다(t *testing.T) {
+	url, shutdown, err := embeddednats.Start()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer shutdown()
+	bus, err := eventbus.Connect(url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer bus.Close()
+
+	stockRepo := wireInventory(t, bus, map[string]int{"prod-A": 10, "prod-B": 5})
+	wirePayment(t, bus)
+	orderRepo, orderSvc, saga := wireOrdering(t, bus)
+	wireShipping(t, bus)
+	if err := bus.Subscribe("shipping.dispatched", "ordering", saga.OnShipmentDispatched); err != nil {
+		t.Fatal(err)
+	}
+
+	shipped := make(chan eventbus.Envelope, 1)
+	_ = bus.Subscribe("ordering.order.shipped", "test", func(e eventbus.Envelope) error { shipped <- e; return nil })
+	refunded := make(chan eventbus.Envelope, 1)
+	_ = bus.Subscribe("ordering.order.refunded", "test", func(e eventbus.Envelope) error { refunded <- e; return nil })
+
+	placeSampleOrder(t, orderSvc) // prod-A x2, prod-B x1 → 예약 후 A=8, B=4
+	select {
+	case <-shipped:
+	case <-time.After(5 * time.Second):
+		t.Fatal("타임아웃: 배송까지 흐르지 않음")
+	}
+
+	// 배송된 주문에 반품 요청 → 환불 + 재입고 사가
+	if err := orderSvc.RequestReturn(context.Background(), "order-1"); err != nil {
+		t.Fatalf("RequestReturn: %v", err)
+	}
+	select {
+	case <-refunded:
+	case <-time.After(5 * time.Second):
+		t.Fatal("타임아웃: 환불(order.refunded)까지 흐르지 않음")
+	}
+
+	got, _ := orderRepo.FindByID(context.Background(), "order-1")
+	if got.Status() != orderingdomain.StatusRefunded {
+		t.Fatalf("주문 상태 = REFUNDED 여야 하는데 %s", got.Status())
+	}
+	// 반품 재입고로 재고가 원래대로(A=10, B=5) 돌아와야 한다.
+	var restocked bool
+	for i := 0; i < 50; i++ {
+		a, _ := stockRepo.FindByProduct(context.Background(), invDomainProductID("prod-A"))
+		b, _ := stockRepo.FindByProduct(context.Background(), invDomainProductID("prod-B"))
+		if a.Available() == 10 && b.Available() == 5 {
+			restocked = true
+			break
+		}
+		<-time.After(50 * time.Millisecond)
+	}
+	if !restocked {
+		a, _ := stockRepo.FindByProduct(context.Background(), invDomainProductID("prod-A"))
+		t.Fatalf("반품 재입고 후 prod-A 재고 = 10 이어야 하는데 %d", a.Available())
 	}
 }
 

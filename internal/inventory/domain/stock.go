@@ -41,3 +41,10 @@ func (s *StockItem) Release(qty int) {
 		s.available += qty
 	}
 }
+
+// Restock 은 반품된 상품을 재고로 다시 채운다(사후 반품 처리).
+func (s *StockItem) Restock(qty int) {
+	if qty > 0 {
+		s.available += qty
+	}
+}

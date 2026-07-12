@@ -23,3 +23,10 @@ type StockReservationFailed struct {
 }
 
 func (StockReservationFailed) EventName() string { return "stock.reservation_failed" }
+
+// StockRestocked — 반품으로 재고가 다시 채워짐.
+type StockRestocked struct {
+	OrderID OrderID `json:"order_id"`
+}
+
+func (StockRestocked) EventName() string { return "stock.restocked" }

@@ -71,9 +71,11 @@ func (o *Order) Total() Money {
 
 // 허용된 상태 전이. 여기 없는 전이는 모두 거부된다.
 var allowedTransitions = map[OrderStatus][]OrderStatus{
-	StatusPlaced:    {StatusPaid, StatusCancelled},
-	StatusPaid:      {StatusConfirmed, StatusCancelled},
-	StatusConfirmed: {StatusShipped},
+	StatusPlaced:          {StatusPaid, StatusCancelled},
+	StatusPaid:            {StatusConfirmed, StatusCancelled},
+	StatusConfirmed:       {StatusShipped},
+	StatusShipped:         {StatusReturnRequested}, // 배송된 주문만 반품 가능
+	StatusReturnRequested: {StatusRefunded},        // 반품 요청 → 환불 완료
 }
 
 func (o *Order) transition(to OrderStatus, event DomainEvent) error {
@@ -91,6 +93,23 @@ func (o *Order) MarkPaid() error { return o.transition(StatusPaid, OrderPaid{Ord
 func (o *Order) Confirm() error  { return o.transition(StatusConfirmed, OrderConfirmed{OrderID: o.id}) }
 func (o *Order) Ship() error     { return o.transition(StatusShipped, OrderShipped{OrderID: o.id}) }
 func (o *Order) Cancel() error   { return o.transition(StatusCancelled, OrderCancelled{OrderID: o.id}) }
+
+// RequestReturn 은 배송된 주문의 반품을 요청한다(사후 보상 사가의 시작).
+// 이벤트에 항목·금액을 실어, 결제는 환불하고 재고는 복원할 수 있게 한다.
+func (o *Order) RequestReturn() error {
+	items := make([]OrderPlacedItem, len(o.lines))
+	for i, l := range o.lines {
+		items[i] = OrderPlacedItem{ProductID: l.productID, Quantity: l.quantity.value}
+	}
+	return o.transition(StatusReturnRequested, OrderReturnRequested{
+		OrderID: o.id, Amount: o.Total(), Items: items,
+	})
+}
+
+// MarkRefunded 는 환불 완료에 반응해 주문을 환불완료로 전이한다.
+func (o *Order) MarkRefunded() error {
+	return o.transition(StatusRefunded, OrderRefunded{OrderID: o.id})
+}
 
 func (o *Order) ID() OrderID            { return o.id }
 func (o *Order) CustomerID() CustomerID { return o.customerID }

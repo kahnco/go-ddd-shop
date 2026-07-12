@@ -57,3 +57,20 @@ type OrderCancelled struct {
 }
 
 func (OrderCancelled) EventName() string { return "order.cancelled" }
+
+// OrderReturnRequested — 배송된 주문의 반품 요청됨.
+// 결제 컨텍스트가 구독해 환불하고, 재고 컨텍스트가 구독해 재고를 복원한다(사후 보상).
+type OrderReturnRequested struct {
+	OrderID OrderID           `json:"order_id"`
+	Amount  Money             `json:"amount"`
+	Items   []OrderPlacedItem `json:"items"`
+}
+
+func (OrderReturnRequested) EventName() string { return "order.return_requested" }
+
+// OrderRefunded — 환불 완료로 반품이 마무리됨.
+type OrderRefunded struct {
+	OrderID OrderID `json:"order_id"`
+}
+
+func (OrderRefunded) EventName() string { return "order.refunded" }

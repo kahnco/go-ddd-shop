@@ -101,6 +101,7 @@ func main() {
 		subs := map[string]eventbus.Handler{
 			"payment.completed":                  saga.OnPaymentCompleted,       // 결제 완료 → 확정
 			"payment.failed":                     saga.OnPaymentFailed,          // 결제 실패 → 취소
+			"payment.refunded":                   saga.OnPaymentRefunded,        // 환불 완료 → 환불완료
 			"shipping.dispatched":                saga.OnShipmentDispatched,     // 배송 시작 → 배송중
 			"inventory.stock.reservation_failed": saga.OnStockReservationFailed, // 재고 부족 → 취소
 			"catalog.product.added":              projection.OnProductAdded,     // 상품 등록 → 가격 프로젝션 갱신

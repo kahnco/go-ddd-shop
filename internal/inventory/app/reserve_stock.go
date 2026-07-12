@@ -104,6 +104,22 @@ func (s *ReservationService) OnOrderCancelled(ctx context.Context, orderID strin
 	return s.reservations.Delete(ctx, domain.OrderID(orderID))
 }
 
+// OnReturnRequested 는 반품 요청에 반응해 반품 상품을 재고로 다시 채운다.
+// 반품된 항목은 이벤트에 실려 오므로, 예약 기록 없이도 처리할 수 있다.
+func (s *ReservationService) OnReturnRequested(ctx context.Context, cmd ReserveForOrderCommand) error {
+	for _, it := range cmd.Items {
+		stock, err := s.stock.FindByProduct(ctx, domain.ProductID(it.ProductID))
+		if err != nil {
+			continue // 모르는 상품이면 건너뛴다(방어적)
+		}
+		stock.Restock(it.Quantity)
+		if err := s.stock.Save(ctx, stock); err != nil {
+			return err
+		}
+	}
+	return s.publisher.Publish(ctx, domain.StockRestocked{OrderID: domain.OrderID(cmd.OrderID)})
+}
+
 func (s *ReservationService) publishFailed(ctx context.Context, orderID string, cause error) error {
 	return s.publisher.Publish(ctx, domain.StockReservationFailed{
 		OrderID: domain.OrderID(orderID),

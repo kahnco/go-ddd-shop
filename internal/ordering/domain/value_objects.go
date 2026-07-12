@@ -57,9 +57,11 @@ type (
 type OrderStatus string
 
 const (
-	StatusPlaced    OrderStatus = "PLACED"    // 생성됨
-	StatusPaid      OrderStatus = "PAID"      // 결제완료
-	StatusConfirmed OrderStatus = "CONFIRMED" // 확정
-	StatusShipped   OrderStatus = "SHIPPED"   // 배송중
-	StatusCancelled OrderStatus = "CANCELLED" // 취소
+	StatusPlaced          OrderStatus = "PLACED"           // 생성됨
+	StatusPaid            OrderStatus = "PAID"             // 결제완료
+	StatusConfirmed       OrderStatus = "CONFIRMED"        // 확정
+	StatusShipped         OrderStatus = "SHIPPED"          // 배송중
+	StatusCancelled       OrderStatus = "CANCELLED"        // 취소
+	StatusReturnRequested OrderStatus = "RETURN_REQUESTED" // 반품 요청됨
+	StatusRefunded        OrderStatus = "REFUNDED"         // 환불 완료
 )

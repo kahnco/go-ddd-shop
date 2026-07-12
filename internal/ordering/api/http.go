@@ -23,6 +23,7 @@ func NewOrderHandler(svc *app.OrderService) *OrderHandler {
 func (h *OrderHandler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /orders", h.placeOrder)
 	mux.HandleFunc("GET /orders/{id}", h.getOrder)
+	mux.HandleFunc("POST /orders/{id}/return", h.requestReturn) // 반품 요청(배송된 주문만)
 }
 
 // --- 요청/응답 DTO ---
@@ -73,6 +74,15 @@ func (h *OrderHandler) placeOrder(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, map[string]string{"order_id": string(id)})
 }
 
+func (h *OrderHandler) requestReturn(w http.ResponseWriter, r *http.Request) {
+	id := domain.OrderID(r.PathValue("id"))
+	if err := h.svc.RequestReturn(r.Context(), id); err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusAccepted, map[string]string{"order_id": string(id), "status": "RETURN_REQUESTED"})
+}
+
 func (h *OrderHandler) getOrder(w http.ResponseWriter, r *http.Request) {
 	id := domain.OrderID(r.PathValue("id"))
 	order, err := h.svc.GetOrder(r.Context(), id)
@@ -102,6 +112,8 @@ func writeError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, domain.ErrOrderNotFound):
 		status = http.StatusNotFound
+	case errors.Is(err, domain.ErrInvalidStatusTransition):
+		status = http.StatusConflict // 예: 배송 안 된 주문에 반품 요청
 	case errors.Is(err, domain.ErrEmptyOrder),
 		errors.Is(err, domain.ErrNegativeMoney),
 		errors.Is(err, domain.ErrNonPositiveQuantity),

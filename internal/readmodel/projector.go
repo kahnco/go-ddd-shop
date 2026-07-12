@@ -51,6 +51,10 @@ func (p *Projector) Handle(env eventbus.Envelope) error {
 		p.setStatus(env, "SHIPPED")
 	case "order.cancelled":
 		p.setStatus(env, "CANCELLED")
+	case "order.return_requested":
+		p.setStatus(env, "RETURN_REQUESTED")
+	case "order.refunded":
+		p.setStatus(env, "REFUNDED")
 	default:
 		return nil // 관심 없는 이벤트는 무시
 	}

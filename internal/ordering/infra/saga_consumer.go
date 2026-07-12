@@ -94,6 +94,24 @@ func (c *OrderSagaConsumer) OnPaymentFailed(env eventbus.Envelope) error {
 	return nil
 }
 
+// OnPaymentRefunded 는 환불 완료(payment.refunded)에 반응해 주문을 환불완료로 전이한다.
+func (c *OrderSagaConsumer) OnPaymentRefunded(env eventbus.Envelope) error {
+	ctx, span, log, ref, err := c.prepare(env)
+	defer span.End()
+	if err != nil {
+		telemetry.RecordEventConsumed("payment.refunded", "decode_error")
+		return err
+	}
+	if err := c.svc.MarkOrderRefunded(ctx, domain.OrderID(ref.OrderID)); err != nil {
+		log.Error("주문 환불완료 전이 실패", "order", ref.OrderID, "err", err)
+		telemetry.RecordEventConsumed("payment.refunded", "error")
+		return err
+	}
+	log.Info("환불 완료 → 주문 환불완료", "order", ref.OrderID)
+	telemetry.RecordEventConsumed("payment.refunded", "ok")
+	return nil
+}
+
 // OnShipmentDispatched 는 배송 시작(shipping.dispatched)에 반응해 주문을 배송중으로 전이한다.
 func (c *OrderSagaConsumer) OnShipmentDispatched(env eventbus.Envelope) error {
 	ctx, span, log, ref, err := c.prepare(env)

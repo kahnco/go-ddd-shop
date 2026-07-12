@@ -51,7 +51,13 @@ func main() {
 		logger.Error("order.cancelled 구독 실패", "err", err)
 		os.Exit(1)
 	}
-	logger.Info("inventory 서비스 시작 — order.placed·order.cancelled 구독 중", "nats", url)
+	// 반품이 요청되면 재고를 다시 채운다.
+	returnConsumer := infra.NewReturnRequestedConsumer(svc, logger)
+	if err := bus.Subscribe("ordering.order.return_requested", "inventory", returnConsumer.Handle); err != nil {
+		logger.Error("order.return_requested 구독 실패", "err", err)
+		os.Exit(1)
+	}
+	logger.Info("inventory 서비스 시작 — order.placed·order.cancelled·order.return_requested 구독 중", "nats", url)
 
 	// 관찰성·probe 용 최소 HTTP 서버(별도 고루틴).
 	mux := http.NewServeMux()

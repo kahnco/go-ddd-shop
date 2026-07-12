@@ -38,6 +38,10 @@ func wireInventory(t *testing.T, bus *eventbus.Bus, seed map[string]int) *invinf
 	if err := bus.Subscribe("ordering.order.cancelled", "inventory", cancelled.Handle); err != nil {
 		t.Fatalf("order.cancelled 구독: %v", err)
 	}
+	returned := invinfra.NewReturnRequestedConsumer(svc, discardLogger())
+	if err := bus.Subscribe("ordering.order.return_requested", "inventory", returned.Handle); err != nil {
+		t.Fatalf("order.return_requested 구독: %v", err)
+	}
 	return repo
 }
 
