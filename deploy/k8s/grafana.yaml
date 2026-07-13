@@ -1,0 +1,169 @@
+# Grafana — Prometheus 를 데이터소스로 붙이고, 쇼핑몰 대시보드를 자동 프로비저닝한다.
+# 데모라 익명 접근(Admin)을 켠다. 접근: kubectl port-forward -n shop svc/grafana 3000:3000
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-datasource
+  namespace: shop
+data:
+  prometheus.yaml: |
+    apiVersion: 1
+    datasources:
+      - name: Prometheus
+        type: prometheus
+        uid: prometheus
+        access: proxy
+        url: http://prometheus:9090
+        isDefault: true
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboards-provider
+  namespace: shop
+data:
+  provider.yaml: |
+    apiVersion: 1
+    providers:
+      - name: shop
+        folder: Shop
+        type: file
+        options:
+          path: /var/lib/grafana/dashboards
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-shop
+  namespace: shop
+data:
+  shop.json: |
+    {
+      "uid": "shop-overview",
+      "title": "Shop — RED · 비즈니스 · SLO",
+      "schemaVersion": 39,
+      "editable": true,
+      "time": { "from": "now-30m", "to": "now" },
+      "refresh": "10s",
+      "panels": [
+        {
+          "type": "timeseries", "title": "요청률 (req/s) — RED: Rate",
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "targets": [ { "refId": "A", "expr": "sum(rate(http_requests_total[1m])) by (app)", "legendFormat": "{{app}}" } ]
+        },
+        {
+          "type": "timeseries", "title": "에러율 (5xx 비율) — RED: Errors",
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": { "defaults": { "unit": "percentunit", "max": 1 }, "overrides": [] },
+          "targets": [ { "refId": "A", "expr": "sum(rate(http_requests_total{status=~\"5..\"}[5m])) / clamp_min(sum(rate(http_requests_total[5m])), 1)", "legendFormat": "5xx 비율" } ]
+        },
+        {
+          "type": "timeseries", "title": "지연 p50/p95/p99 (s) — RED: Duration",
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+          "targets": [
+            { "refId": "A", "expr": "histogram_quantile(0.50, sum(rate(http_request_duration_seconds_bucket[5m])) by (le))", "legendFormat": "p50" },
+            { "refId": "B", "expr": "histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[5m])) by (le))", "legendFormat": "p95" },
+            { "refId": "C", "expr": "histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket[5m])) by (le))", "legendFormat": "p99" }
+          ]
+        },
+        {
+          "type": "stat", "title": "가용성 SLO (목표 99.9%)",
+          "gridPos": { "h": 8, "w": 6, "x": 12, "y": 8 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percentunit", "min": 0, "max": 1,
+              "thresholds": { "mode": "absolute", "steps": [
+                { "color": "red", "value": null }, { "color": "yellow", "value": 0.99 }, { "color": "green", "value": 0.999 } ] }
+            }, "overrides": []
+          },
+          "targets": [ { "refId": "A", "expr": "1 - (sum(rate(http_requests_total{status=~\"5..\"}[30m])) / clamp_min(sum(rate(http_requests_total[30m])), 1))" } ]
+        },
+        {
+          "type": "stat", "title": "지연 SLO — p95 < 500ms",
+          "gridPos": { "h": 8, "w": 6, "x": 18, "y": 8 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s",
+              "thresholds": { "mode": "absolute", "steps": [
+                { "color": "green", "value": null }, { "color": "red", "value": 0.5 } ] }
+            }, "overrides": []
+          },
+          "targets": [ { "refId": "A", "expr": "histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[5m])) by (le))" } ]
+        },
+        {
+          "type": "timeseries", "title": "주문/분 (유입 경로별) — 비즈니스",
+          "gridPos": { "h": 8, "w": 8, "x": 0, "y": 16 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "targets": [ { "refId": "A", "expr": "sum(rate(orders_placed_total[5m])) by (channel) * 60", "legendFormat": "{{channel}}" } ]
+        },
+        {
+          "type": "timeseries", "title": "매출/분 (원) — 비즈니스",
+          "gridPos": { "h": 8, "w": 8, "x": 8, "y": 16 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "targets": [ { "refId": "A", "expr": "sum(rate(order_revenue_won_total[5m])) * 60", "legendFormat": "원/분" } ]
+        },
+        {
+          "type": "timeseries", "title": "DLQ 유입 & 소비 에러 — 신뢰성",
+          "gridPos": { "h": 8, "w": 8, "x": 16, "y": 16 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "targets": [
+            { "refId": "A", "expr": "sum(rate(dlq_messages_total[5m])) by (subject)", "legendFormat": "DLQ {{subject}}" },
+            { "refId": "B", "expr": "sum(rate(events_consumed_total{result=\"error\"}[5m]))", "legendFormat": "소비 에러" }
+          ]
+        }
+      ]
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grafana
+  namespace: shop
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: grafana
+  template:
+    metadata:
+      labels:
+        app: grafana
+    spec:
+      containers:
+        - name: grafana
+          image: grafana/grafana:11.2.0
+          ports:
+            - containerPort: 3000
+          env:
+            - { name: GF_AUTH_ANONYMOUS_ENABLED, value: "true" }
+            - { name: GF_AUTH_ANONYMOUS_ORG_ROLE, value: "Admin" }
+            - { name: GF_SECURITY_ADMIN_PASSWORD, value: "admin" }
+          volumeMounts:
+            - { name: datasource, mountPath: /etc/grafana/provisioning/datasources }
+            - { name: provider, mountPath: /etc/grafana/provisioning/dashboards }
+            - { name: dashboard, mountPath: /var/lib/grafana/dashboards }
+          resources:
+            requests: { cpu: "50m", memory: "128Mi" }
+            limits: { cpu: "500m", memory: "512Mi" }
+      volumes:
+        - { name: datasource, configMap: { name: grafana-datasource } }
+        - { name: provider, configMap: { name: grafana-dashboards-provider } }
+        - { name: dashboard, configMap: { name: grafana-dashboard-shop } }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: grafana
+  namespace: shop
+spec:
+  selector:
+    app: grafana
+  ports:
+    - port: 3000
+      targetPort: 3000

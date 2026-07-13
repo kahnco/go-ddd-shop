@@ -3,6 +3,7 @@ package telemetry
 import (
 	"log/slog"
 	"net/http"
+	"strconv"
 	"time"
 )
 
@@ -45,7 +46,9 @@ func Middleware(logger *slog.Logger, next http.Handler) http.Handler {
 		if route == "" {
 			route = "unmatched"
 		}
-		httpRequests.WithLabelValues(r.Method, route, http.StatusText(rec.status)).Inc()
+		// 상태는 숫자 코드로(예: "200","500"). status=~"5.." 같은 SLO 쿼리가 깔끔해진다.
+		httpRequests.WithLabelValues(r.Method, route, strconv.Itoa(rec.status)).Inc()
+		RecordHTTPDuration(r.Method, route, elapsed.Seconds())
 		logger.Info("http request",
 			"method", r.Method, "path", r.URL.Path, "status", rec.status,
 			"dur_ms", elapsed.Milliseconds(), "correlation_id", cid)

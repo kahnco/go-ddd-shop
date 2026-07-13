@@ -21,7 +21,7 @@ spec:
     spec:
       containers:
         - name: cart
-          image: go-ddd-shop/cart:part-23
+          image: go-ddd-shop/cart:part-24
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8080

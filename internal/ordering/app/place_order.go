@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/kahnco/go-ddd-shop/internal/ordering/domain"
+	"github.com/kahnco/go-ddd-shop/internal/platform/telemetry"
 )
 
 // PlaceOrderCommand 는 "주문하기" 유스케이스의 입력.
@@ -60,6 +61,7 @@ func (s *OrderService) PlaceOrder(ctx context.Context, cmd PlaceOrderCommand) (d
 	if err := s.publisher.Publish(ctx, order.PullEvents()...); err != nil {
 		return "", err
 	}
+	telemetry.RecordOrderPlaced(cmd.Channel, order.Total().Amount()) // 비즈니스 지표
 	return order.ID(), nil
 }
 

@@ -21,7 +21,7 @@ spec:
     spec:
       containers:
         - name: ordering
-          image: go-ddd-shop/ordering:part-23
+          image: go-ddd-shop/ordering:part-24
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8080

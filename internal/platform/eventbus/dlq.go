@@ -5,6 +5,8 @@ import (
 	"fmt"
 
 	"github.com/nats-io/nats.go"
+
+	"github.com/kahnco/go-ddd-shop/internal/platform/telemetry"
 )
 
 // DeadLetter 는 재시도를 다 쓰고도 처리 못 한 이벤트의 기록이다.
@@ -43,8 +45,11 @@ func (b *Bus) publishDeadLetter(subject, group string, attempts int, handlerErr 
 	if env.ID != "" {
 		opts = append(opts, nats.MsgId("dlq-"+env.ID)) // 같은 이벤트가 두 번 죽어도 DLQ 에선 한 번만
 	}
-	_, err = b.js.Publish("dlq."+subject, raw, opts...)
-	return err
+	if _, err = b.js.Publish("dlq."+subject, raw, opts...); err != nil {
+		return err
+	}
+	telemetry.RecordDeadLettered(subject) // DLQ 유입을 메트릭으로(대시보드·알림용)
+	return nil
 }
 
 // SubscribeDLQ 는 죽은 편지함을 구독한다. 대시보드·알림·재처리 도구가 여기에 붙어
