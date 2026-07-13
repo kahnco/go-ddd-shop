@@ -7,6 +7,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/kahnco/go-ddd-shop/internal/integration"
 	"github.com/kahnco/go-ddd-shop/internal/ordering/api"
 	"github.com/kahnco/go-ddd-shop/internal/ordering/app"
 	"github.com/kahnco/go-ddd-shop/internal/ordering/domain"
@@ -60,6 +61,9 @@ func main() {
 		}
 		defer bus.Close()
 	}
+
+	// 이벤트 스키마 업캐스터 등록(구독 전). 스트림 속 옛 버전 이벤트를 최신으로 읽는다.
+	integration.RegisterUpcasters()
 
 	// 발행 방식 선택.
 	//   - Postgres + NATS → 트랜잭셔널 아웃박스: 이벤트는 저장 트랜잭션으로 아웃박스에 적재되고

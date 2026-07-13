@@ -62,7 +62,11 @@ func (h *OrderHandler) placeOrder(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 신원은 인증 토큰에서. 클라이언트가 남의 이름으로 주문할 수 없다.
-	cmd := app.PlaceOrderCommand{CustomerID: auth.Subject(r.Context())}
+	// 유입 경로는 선택 헤더 X-Client-Channel 에서(없으면 도메인이 "web" 으로).
+	cmd := app.PlaceOrderCommand{
+		CustomerID: auth.Subject(r.Context()),
+		Channel:    r.Header.Get("X-Client-Channel"),
+	}
 	for _, it := range req.Items {
 		cmd.Items = append(cmd.Items, app.OrderItemInput{
 			ProductID: it.ProductID, Quantity: it.Quantity,

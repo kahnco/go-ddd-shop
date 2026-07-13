@@ -34,6 +34,7 @@ func (p *Projector) Handle(env eventbus.Envelope) error {
 			OrderID    string `json:"order_id"`
 			CustomerID string `json:"customer_id"`
 			Total      int64  `json:"total"`
+			Channel    string `json:"channel"` // v2. 옛 이벤트엔 없지만 업캐스터가 채워 준다.
 			Items      []Item `json:"items"`
 		}
 		if err := env.Into(&e); err != nil {
@@ -41,7 +42,7 @@ func (p *Projector) Handle(env eventbus.Envelope) error {
 		}
 		p.store.Upsert(OrderView{
 			OrderID: e.OrderID, CustomerID: e.CustomerID,
-			Status: "PLACED", Total: e.Total, Items: e.Items,
+			Status: "PLACED", Total: e.Total, Channel: e.Channel, Items: e.Items,
 		})
 	case "order.paid":
 		p.setStatus(env, "PAID")

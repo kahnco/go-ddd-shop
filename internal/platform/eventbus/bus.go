@@ -62,6 +62,9 @@ func (b *Bus) Close() { _ = b.nc.Drain() }
 // Publish 는 봉투를 subject 로 발행한다.
 // JetStream 모드에선 스트림에 영속 저장되고, core 모드에선 그냥 흘려보낸다.
 func (b *Bus) Publish(subject string, env Envelope) error {
+	if env.SchemaVersion == 0 {
+		env.SchemaVersion = latestVersion(env.Name) // 최신 스키마 버전을 찍는다
+	}
 	raw, err := json.Marshal(env)
 	if err != nil {
 		return err
@@ -105,6 +108,7 @@ func (b *Bus) Subscribe(subject, group string, handler Handler) error {
 					env.ID = fmt.Sprintf("js-%d", meta.Sequence.Stream) // 재전송돼도 같은 값 → 멱등 키
 				}
 			}
+			env = upcast(env) // 옛 버전 이벤트를 최신 스키마로 끌어올린 뒤 넘긴다
 
 			err := handler(env)
 			if err == nil {
@@ -138,7 +142,7 @@ func (b *Bus) Subscribe(subject, group string, handler Handler) error {
 	_, err := b.nc.QueueSubscribe(subject, group, func(m *nats.Msg) {
 		var env Envelope
 		if json.Unmarshal(m.Data, &env) == nil {
-			_ = handler(env)
+			_ = handler(upcast(env))
 		}
 	})
 	if err != nil {

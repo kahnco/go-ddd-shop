@@ -8,6 +8,7 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/kahnco/go-ddd-shop/internal/integration"
 	"github.com/kahnco/go-ddd-shop/internal/inventory/app"
 	"github.com/kahnco/go-ddd-shop/internal/inventory/domain"
 	"github.com/kahnco/go-ddd-shop/internal/inventory/infra"
@@ -31,6 +32,9 @@ func main() {
 		os.Exit(1)
 	}
 	defer bus.Close()
+
+	// 이벤트 스키마 업캐스터 등록(구독 전). 옛 order.placed(채널 없음)를 최신으로 읽는다.
+	integration.RegisterUpcasters()
 
 	// 재고 저장소 선택. DATABASE_URL 이 있으면 PostgreSQL(행 잠금으로 동시성 안전 + 여러
 	// replica 가 재고를 공유), 없으면 인메모리(원자 Update 로 단일 인스턴스 동시성은 안전).

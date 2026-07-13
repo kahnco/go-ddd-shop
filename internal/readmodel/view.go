@@ -20,6 +20,7 @@ type OrderView struct {
 	CustomerID string `json:"customer_id"`
 	Status     string `json:"status"`
 	Total      int64  `json:"total"`
+	Channel    string `json:"channel"` // 유입 경로(order.placed v2). 옛 이벤트는 업캐스터가 "web" 으로 채운다.
 	Items      []Item `json:"items"`
 }
 

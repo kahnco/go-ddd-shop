@@ -12,10 +12,14 @@ import "encoding/json"
 type Envelope struct {
 	// ID 는 이 이벤트의 고유 식별자. 아웃박스가 재전송해도 같은 ID 를 유지하므로,
 	// 소비자가 이 ID 로 중복을 걸러낼 수 있다(멱등성의 열쇠). 직접 발행 시엔 비어 있을 수 있다.
-	ID   string            `json:"id,omitempty"`
-	Name string            `json:"name"`
-	Data json.RawMessage   `json:"data"`
-	Meta map[string]string `json:"meta,omitempty"`
+	ID   string `json:"id,omitempty"`
+	Name string `json:"name"`
+	// SchemaVersion 은 Data 페이로드의 스키마 버전이다. 0/누락은 v1 로 본다.
+	// 발행 시 최신 버전으로 찍히고, 소비 시 등록된 업캐스터로 최신까지 끌어올려진다.
+	// 덕분에 JetStream 에 남아 있는 옛 버전 이벤트도 최신 소비자가 그대로 읽는다.
+	SchemaVersion int               `json:"schema_version,omitempty"`
+	Data          json.RawMessage   `json:"data"`
+	Meta          map[string]string `json:"meta,omitempty"`
 }
 
 // NewEnvelope 는 payload 를 JSON 으로 직렬화해 봉투에 담는다.

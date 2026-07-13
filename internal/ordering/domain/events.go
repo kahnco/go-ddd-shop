@@ -26,6 +26,9 @@ type OrderPlaced struct {
 	CustomerID CustomerID        `json:"customer_id"`
 	Total      Money             `json:"total"`
 	Items      []OrderPlacedItem `json:"items"`
+	// Channel 은 주문 유입 경로(web/app/…). 스키마 v2 에서 추가됐다.
+	// 옛 v1 이벤트엔 없으며, 소비 시 업캐스터가 "web" 으로 채운다.
+	Channel string `json:"channel"`
 }
 
 func (OrderPlaced) EventName() string { return "order.placed" }

@@ -11,6 +11,7 @@ import (
 type PlaceOrderCommand struct {
 	CustomerID string
 	Items      []OrderItemInput
+	Channel    string // 주문 유입 경로(web/app/…). 비면 도메인에서 "web" 으로 기본값.
 }
 
 type OrderItemInput struct {
@@ -48,7 +49,7 @@ func (s *OrderService) PlaceOrder(ctx context.Context, cmd PlaceOrderCommand) (d
 		lines = append(lines, domain.NewOrderLine(domain.ProductID(item.ProductID), qty, price))
 	}
 
-	order, err := domain.PlaceOrder(s.ids.NewOrderID(), domain.CustomerID(cmd.CustomerID), lines)
+	order, err := domain.PlaceOrder(s.ids.NewOrderID(), domain.CustomerID(cmd.CustomerID), lines, cmd.Channel)
 	if err != nil {
 		return "", err
 	}

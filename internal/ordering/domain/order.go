@@ -32,9 +32,16 @@ type Order struct {
 
 // PlaceOrder 는 새 주문을 생성하는 팩토리. 불변식을 여기서 강제한다.
 // 항목이 하나도 없으면 애초에 주문이 만들어지지 않는다.
-func PlaceOrder(id OrderID, customerID CustomerID, lines []OrderLine) (*Order, error) {
+//
+// channel 은 선택 인자(주문 유입 경로: web/app/…). 안 주면 "web".
+// 가변 인자로 둔 덕에, 기존 호출부는 한 줄도 안 바꾸고 새 필드를 얹었다(더하기 변경).
+func PlaceOrder(id OrderID, customerID CustomerID, lines []OrderLine, channel ...string) (*Order, error) {
 	if len(lines) == 0 {
 		return nil, ErrEmptyOrder
+	}
+	ch := "web"
+	if len(channel) > 0 && channel[0] != "" {
+		ch = channel[0]
 	}
 	o := &Order{
 		id:         id,
@@ -47,7 +54,7 @@ func PlaceOrder(id OrderID, customerID CustomerID, lines []OrderLine) (*Order, e
 	for i, l := range lines {
 		items[i] = OrderPlacedItem{ProductID: l.productID, Quantity: l.quantity.value}
 	}
-	o.record(OrderPlaced{OrderID: id, CustomerID: customerID, Total: o.Total(), Items: items})
+	o.record(OrderPlaced{OrderID: id, CustomerID: customerID, Total: o.Total(), Items: items, Channel: ch})
 	return o, nil
 }
 

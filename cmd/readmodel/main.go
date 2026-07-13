@@ -8,6 +8,7 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/kahnco/go-ddd-shop/internal/integration"
 	"github.com/kahnco/go-ddd-shop/internal/platform/eventbus"
 	"github.com/kahnco/go-ddd-shop/internal/platform/telemetry"
 	"github.com/kahnco/go-ddd-shop/internal/readmodel"
@@ -29,6 +30,9 @@ func main() {
 		os.Exit(1)
 	}
 	defer bus.Close()
+
+	// 이벤트 스키마 업캐스터 등록(구독 전). 재생되는 옛 order.placed 를 최신으로 읽는다.
+	integration.RegisterUpcasters()
 
 	store := readmodel.NewMemoryStore()
 	projector := readmodel.NewProjector(store, logger)
