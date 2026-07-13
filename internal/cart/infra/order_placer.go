@@ -8,6 +8,7 @@ import (
 	"net/http"
 
 	"github.com/kahnco/go-ddd-shop/internal/cart/app"
+	"github.com/kahnco/go-ddd-shop/internal/platform/auth"
 	"github.com/kahnco/go-ddd-shop/internal/platform/telemetry"
 )
 
@@ -44,6 +45,11 @@ func (p *HTTPOrderPlacer) Place(ctx context.Context, customerID string, items []
 	// 상관 ID 를 이어 전달해, 장바구니→주문→사가 전체를 한 ID 로 추적한다.
 	if cid := telemetry.CorrelationID(ctx); cid != "" {
 		req.Header.Set(telemetry.HeaderCorrelationID, cid)
+	}
+	// 인증 토큰을 그대로 이어 전달한다 — 주문 서비스가 같은 신원으로 주문 주인을 정한다.
+	// (분산추적의 traceparent 전파와 같은 결: 신원도 서비스 홉을 따라 흐른다.)
+	if token := auth.Token(ctx); token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
 	}
 
 	resp, err := http.DefaultClient.Do(req)

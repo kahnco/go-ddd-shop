@@ -8,6 +8,7 @@ import (
 
 	"github.com/kahnco/go-ddd-shop/internal/cart/app"
 	"github.com/kahnco/go-ddd-shop/internal/cart/infra"
+	"github.com/kahnco/go-ddd-shop/internal/platform/auth"
 	"github.com/kahnco/go-ddd-shop/internal/platform/telemetry"
 )
 
@@ -27,7 +28,7 @@ func main() {
 	svc := app.NewCartService(carts, customers, orders)
 
 	mux := http.NewServeMux()
-	infra.NewCartHandler(svc).Register(mux)
+	infra.NewCartHandler(svc).Register(mux, auth.Middleware(auth.SecretFromEnv(logger)))
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))

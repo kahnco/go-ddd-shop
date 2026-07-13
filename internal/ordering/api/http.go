@@ -7,6 +7,7 @@ import (
 
 	"github.com/kahnco/go-ddd-shop/internal/ordering/app"
 	"github.com/kahnco/go-ddd-shop/internal/ordering/domain"
+	"github.com/kahnco/go-ddd-shop/internal/platform/auth"
 )
 
 // OrderHandler 는 HTTP 요청을 애플리케이션 유스케이스로 잇는 어댑터.
@@ -19,18 +20,19 @@ func NewOrderHandler(svc *app.OrderService) *OrderHandler {
 	return &OrderHandler{svc: svc}
 }
 
-// Register 는 Go 1.22+ ServeMux 의 "메서드 + 경로" 패턴으로 라우트를 건다.
-func (h *OrderHandler) Register(mux *http.ServeMux) {
-	mux.HandleFunc("POST /orders", h.placeOrder)
-	mux.HandleFunc("GET /orders/{id}", h.getOrder)
-	mux.HandleFunc("POST /orders/{id}/return", h.requestReturn) // 반품 요청(배송된 주문만)
+// Register 는 주문 라우트를 인증 미들웨어로 감싸 건다.
+// 세 엔드포인트 모두 로그인한 회원만 접근할 수 있고, 신원은 토큰에서 나온다.
+func (h *OrderHandler) Register(mux *http.ServeMux, authMW func(http.Handler) http.Handler) {
+	mux.Handle("POST /orders", authMW(http.HandlerFunc(h.placeOrder)))
+	mux.Handle("GET /orders/{id}", authMW(http.HandlerFunc(h.getOrder)))
+	mux.Handle("POST /orders/{id}/return", authMW(http.HandlerFunc(h.requestReturn)))
 }
 
 // --- 요청/응답 DTO ---
 
 type placeOrderRequest struct {
-	CustomerID string `json:"customer_id"`
-	Items      []struct {
+	// customer_id 는 더 이상 받지 않는다 — 신원은 토큰(sub)에서만 온다(위조 방지).
+	Items []struct {
 		ProductID string `json:"product_id"`
 		Quantity  int    `json:"quantity"`
 		// 가격(unit_price)은 받지 않는다 — 서버가 카탈로그에서 정한다.
@@ -59,7 +61,8 @@ func (h *OrderHandler) placeOrder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cmd := app.PlaceOrderCommand{CustomerID: req.CustomerID}
+	// 신원은 인증 토큰에서. 클라이언트가 남의 이름으로 주문할 수 없다.
+	cmd := app.PlaceOrderCommand{CustomerID: auth.Subject(r.Context())}
 	for _, it := range req.Items {
 		cmd.Items = append(cmd.Items, app.OrderItemInput{
 			ProductID: it.ProductID, Quantity: it.Quantity,
@@ -76,6 +79,16 @@ func (h *OrderHandler) placeOrder(w http.ResponseWriter, r *http.Request) {
 
 func (h *OrderHandler) requestReturn(w http.ResponseWriter, r *http.Request) {
 	id := domain.OrderID(r.PathValue("id"))
+	// 소유 검증을 위해 먼저 주문을 읽는다(남의 주문 반품 금지).
+	order, err := h.svc.GetOrder(r.Context(), id)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if !isOwner(r, order) {
+		writeForbidden(w)
+		return
+	}
 	if err := h.svc.RequestReturn(r.Context(), id); err != nil {
 		writeError(w, err)
 		return
@@ -88,6 +101,10 @@ func (h *OrderHandler) getOrder(w http.ResponseWriter, r *http.Request) {
 	order, err := h.svc.GetOrder(r.Context(), id)
 	if err != nil {
 		writeError(w, err)
+		return
+	}
+	if !isOwner(r, order) {
+		writeForbidden(w)
 		return
 	}
 
@@ -105,7 +122,16 @@ func (h *OrderHandler) getOrder(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, resp)
 }
 
+// isOwner 는 인증된 회원이 이 주문의 주인인지 본다.
+func isOwner(r *http.Request, order *domain.Order) bool {
+	return string(order.CustomerID()) == auth.Subject(r.Context())
+}
+
 // --- 헬퍼: 도메인 에러를 HTTP 상태코드로 매핑 ---
+
+func writeForbidden(w http.ResponseWriter) {
+	writeJSON(w, http.StatusForbidden, map[string]string{"error": "본인의 주문만 접근할 수 있습니다"})
+}
 
 func writeError(w http.ResponseWriter, err error) {
 	status := http.StatusInternalServerError

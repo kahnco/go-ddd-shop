@@ -5,9 +5,11 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/kahnco/go-ddd-shop/internal/customer/app"
 	"github.com/kahnco/go-ddd-shop/internal/customer/infra"
+	"github.com/kahnco/go-ddd-shop/internal/platform/auth"
 	"github.com/kahnco/go-ddd-shop/internal/platform/eventbus"
 	"github.com/kahnco/go-ddd-shop/internal/platform/telemetry"
 )
@@ -33,7 +35,14 @@ func main() {
 		logger.Info("이벤트 발행 = NATS")
 	}
 
-	svc := app.NewCustomerService(repo, publisher)
+	// 인증 조립: 비밀번호는 bcrypt 로 해시하고, 로그인 성공 시 24시간짜리 JWT 를 발급한다.
+	secret := auth.SecretFromEnv(logger)
+	svc := app.NewCustomerService(
+		repo, publisher,
+		infra.NewBcryptHasher(),
+		infra.NewJWTIssuer(secret, 24*time.Hour),
+		infra.RandomIDGenerator{},
+	)
 
 	mux := http.NewServeMux()
 	infra.NewCustomerHandler(svc).Register(mux)

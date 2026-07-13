@@ -21,7 +21,7 @@ spec:
     spec:
       containers:
         - name: ordering
-          image: go-ddd-shop/ordering:part-20
+          image: go-ddd-shop/ordering:part-21
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8080
@@ -31,6 +31,8 @@ spec:
                 name: shop-config
             - secretRef:
                 name: ordering-secret
+            - secretRef:
+                name: shop-secret # JWT_SECRET(토큰 검증 키)
           # readiness: DB 까지 준비돼야 트래픽을 받는다. liveness: 프로세스 생존만 확인.
           readinessProbe:
             httpGet: { path: /readyz, port: 8080 }

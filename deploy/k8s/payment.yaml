@@ -21,7 +21,7 @@ spec:
     spec:
       containers:
         - name: payment
-          image: go-ddd-shop/payment:part-20
+          image: go-ddd-shop/payment:part-21
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8080

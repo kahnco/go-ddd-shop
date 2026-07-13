@@ -10,7 +10,9 @@ import (
 )
 
 // CustomerHandler 는 회원 컨텍스트의 HTTP 어댑터.
-// 장바구니 서비스가 결제 시 GET /customers/{id} 로 회원 존재를 확인한다.
+//   - POST /auth/register : 회원 가입(이메일·비밀번호·이름) → 회원 ID
+//   - POST /auth/login    : 로그인 → 접근 토큰(JWT)
+//   - GET  /customers/{id}: 회원 존재/정보 조회(장바구니 서비스가 내부 호출)
 type CustomerHandler struct {
 	svc *app.CustomerService
 }
@@ -20,32 +22,55 @@ func NewCustomerHandler(svc *app.CustomerService) *CustomerHandler {
 }
 
 func (h *CustomerHandler) Register(mux *http.ServeMux) {
-	mux.HandleFunc("POST /customers", h.register)
+	mux.HandleFunc("POST /auth/register", h.register)
+	mux.HandleFunc("POST /auth/login", h.login)
 	mux.HandleFunc("GET /customers/{id}", h.get)
 }
 
-type customerView struct {
-	CustomerID string `json:"customer_id"`
-	Email      string `json:"email"`
-	Name       string `json:"name"`
+type registerRequest struct {
+	Email    string `json:"email"`
+	Password string `json:"password"`
+	Name     string `json:"name"`
+}
+
+type loginRequest struct {
+	Email    string `json:"email"`
+	Password string `json:"password"`
 }
 
 func (h *CustomerHandler) register(w http.ResponseWriter, r *http.Request) {
-	var req customerView
+	var req registerRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "잘못된 JSON"})
 		return
 	}
-	err := h.svc.Register(r.Context(), req.CustomerID, req.Email, req.Name)
+	id, err := h.svc.Register(r.Context(), req.Email, req.Password, req.Name)
 	switch {
 	case errors.Is(err, domain.ErrCustomerExists):
 		writeJSON(w, http.StatusConflict, map[string]string{"error": err.Error()})
-	case errors.Is(err, domain.ErrInvalidCustomer):
+	case errors.Is(err, domain.ErrInvalidCustomer), errors.Is(err, domain.ErrWeakPassword):
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 	case err != nil:
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 	default:
-		writeJSON(w, http.StatusCreated, req)
+		writeJSON(w, http.StatusCreated, map[string]string{"customer_id": string(id)})
+	}
+}
+
+func (h *CustomerHandler) login(w http.ResponseWriter, r *http.Request) {
+	var req loginRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "잘못된 JSON"})
+		return
+	}
+	token, err := h.svc.Login(r.Context(), req.Email, req.Password)
+	switch {
+	case errors.Is(err, domain.ErrInvalidCredentials):
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": err.Error()})
+	case err != nil:
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+	default:
+		writeJSON(w, http.StatusOK, map[string]string{"token": token, "token_type": "Bearer"})
 	}
 }
 
@@ -59,7 +84,9 @@ func (h *CustomerHandler) get(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
-	writeJSON(w, http.StatusOK, customerView{CustomerID: string(c.ID()), Email: c.Email(), Name: c.Name()})
+	writeJSON(w, http.StatusOK, map[string]string{
+		"customer_id": string(c.ID()), "email": c.Email(), "name": c.Name(),
+	})
 }
 
 func writeJSON(w http.ResponseWriter, status int, body any) {

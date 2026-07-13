@@ -21,13 +21,15 @@ spec:
     spec:
       containers:
         - name: cart
-          image: go-ddd-shop/cart:part-20
+          image: go-ddd-shop/cart:part-21
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8080
           envFrom:
             - configMapRef:
                 name: shop-config # OTEL_EXPORTER_OTLP_ENDPOINT 등(NATS 계열은 cart 가 무시)
+            - secretRef:
+                name: shop-secret # JWT_SECRET(토큰 검증 키)
           env:
             - { name: CUSTOMER_URL, value: "http://customer" }
             - { name: ORDERING_URL, value: "http://ordering" }

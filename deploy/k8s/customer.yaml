@@ -20,13 +20,15 @@ spec:
     spec:
       containers:
         - name: customer
-          image: go-ddd-shop/customer:part-20
+          image: go-ddd-shop/customer:part-21
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8080
           envFrom:
             - configMapRef:
                 name: shop-config # NATS_URL, NATS_JETSTREAM
+            - secretRef:
+                name: shop-secret # JWT_SECRET(토큰 서명 키)
           readinessProbe:
             httpGet: { path: /healthz, port: 8080 }
             initialDelaySeconds: 3

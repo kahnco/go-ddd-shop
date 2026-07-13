@@ -11,6 +11,7 @@ import (
 	"github.com/kahnco/go-ddd-shop/internal/ordering/app"
 	"github.com/kahnco/go-ddd-shop/internal/ordering/domain"
 	"github.com/kahnco/go-ddd-shop/internal/ordering/infra"
+	"github.com/kahnco/go-ddd-shop/internal/platform/auth"
 	"github.com/kahnco/go-ddd-shop/internal/platform/eventbus"
 	"github.com/kahnco/go-ddd-shop/internal/platform/telemetry"
 )
@@ -117,7 +118,8 @@ func main() {
 	}
 
 	mux := http.NewServeMux()
-	api.NewOrderHandler(svc).Register(mux)
+	// 주문 라우트는 인증 뒤에. 신원(회원 ID)은 JWT 에서 나온다.
+	api.NewOrderHandler(svc).Register(mux, auth.Middleware(auth.SecretFromEnv(logger)))
 	api.RegisterHealth(mux, ready)
 	mux.Handle("GET /metrics", telemetry.MetricsHandler()) // 프로메테우스 스크레이프 대상
 

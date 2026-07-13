@@ -33,3 +33,16 @@ func (r *MemoryCustomerRepository) Find(_ context.Context, id domain.CustomerID)
 	}
 	return c, nil
 }
+
+// FindByEmail 은 이메일로 회원을 찾는다(로그인용). 인메모리라 선형 탐색.
+// 실서비스라면 이메일에 유니크 인덱스를 두고 조회한다.
+func (r *MemoryCustomerRepository) FindByEmail(_ context.Context, email string) (*domain.Customer, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	for _, c := range r.store {
+		if c.Email() == email {
+			return c, nil
+		}
+	}
+	return nil, domain.ErrCustomerNotFound
+}
