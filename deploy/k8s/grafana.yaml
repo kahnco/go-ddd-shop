@@ -57,7 +57,7 @@ data:
           "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
           "datasource": { "type": "prometheus", "uid": "prometheus" },
           "fieldConfig": { "defaults": { "unit": "percentunit", "max": 1 }, "overrides": [] },
-          "targets": [ { "refId": "A", "expr": "sum(rate(http_requests_total{status=~\"5..\"}[5m])) / clamp_min(sum(rate(http_requests_total[5m])), 1)", "legendFormat": "5xx 비율" } ]
+          "targets": [ { "refId": "A", "expr": "(sum(rate(http_requests_total{status=~\"5..\"}[5m])) or vector(0)) / clamp_min(sum(rate(http_requests_total[5m])), 1)", "legendFormat": "5xx 비율" } ]
         },
         {
           "type": "timeseries", "title": "지연 p50/p95/p99 (s) — RED: Duration",
@@ -81,7 +81,7 @@ data:
                 { "color": "red", "value": null }, { "color": "yellow", "value": 0.99 }, { "color": "green", "value": 0.999 } ] }
             }, "overrides": []
           },
-          "targets": [ { "refId": "A", "expr": "1 - (sum(rate(http_requests_total{status=~\"5..\"}[30m])) / clamp_min(sum(rate(http_requests_total[30m])), 1))" } ]
+          "targets": [ { "refId": "A", "expr": "1 - ((sum(rate(http_requests_total{status=~\"5..\"}[30m])) or vector(0)) / clamp_min(sum(rate(http_requests_total[30m])), 1))" } ]
         },
         {
           "type": "stat", "title": "지연 SLO — p95 < 500ms",
