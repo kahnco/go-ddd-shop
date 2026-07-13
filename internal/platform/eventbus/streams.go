@@ -21,6 +21,9 @@ var shopStreams = []struct {
 	{"SHIPPING", []string{"shipping.>"}},
 	{"CATALOG", []string{"catalog.>"}},
 	{"CUSTOMER", []string{"customer.>"}},
+	// 죽은 편지함(dead-letter). 재시도를 다 쓰고도 처리 못 한 독성 메시지가 여기 모인다.
+	// 소비자를 막지 않으면서, 잃지도 않고, 나중에 사람이 보거나 재투입할 수 있게 보관한다.
+	{"DLQ", []string{"dlq.>"}},
 }
 
 // ensureStreams 는 컨텍스트별 스트림을 만든다(이미 있으면 그대로 둔다).
@@ -50,10 +53,32 @@ func durableName(group, subject string) string {
 // Option 은 Connect 의 동작을 바꾼다.
 type Option func(*config)
 
-type config struct{ jetstream bool }
+type config struct {
+	jetstream bool
+	retry     *retryPolicy
+}
+
+// retryPolicy 는 처리 실패 시 몇 번, 어떤 간격으로 재전송할지 정한다.
+// backoff 는 재전송 사이의 지연(지수적으로 늘림). maxDeliver 를 다 쓰면 DLQ 로 보낸다.
+type retryPolicy struct {
+	maxDeliver int
+	backoff    []time.Duration
+}
+
+// defaultRetry: 최대 5회, 1s→2s→5s→10s 지연. 일시적 장애는 넘기고, 진짜 독성만 DLQ 로.
+var defaultRetry = retryPolicy{
+	maxDeliver: 5,
+	backoff:    []time.Duration{time.Second, 2 * time.Second, 5 * time.Second, 10 * time.Second},
+}
 
 // WithJetStream 은 JetStream(영속 스트림 + 내구 소비자)을 켠다.
 func WithJetStream() Option { return func(c *config) { c.jetstream = true } }
+
+// WithRetry 는 재시도 정책(최대 시도 횟수·백오프 지연)을 바꾼다.
+// 테스트에서 짧은 백오프로 돌리거나, 서비스별로 인내심을 조절할 때 쓴다.
+func WithRetry(maxDeliver int, backoff ...time.Duration) Option {
+	return func(c *config) { c.retry = &retryPolicy{maxDeliver: maxDeliver, backoff: backoff} }
+}
 
 // OptionsFromEnv 는 NATS_JETSTREAM 이 설정돼 있으면 JetStream 을 켜는 옵션을 준다.
 func OptionsFromEnv() []Option {

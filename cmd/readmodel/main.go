@@ -40,6 +40,21 @@ func main() {
 	}
 	logger.Info("readmodel 서비스 시작 — ordering.order.> 구독 중", "nats", url)
 
+	// 죽은 편지함 모니터: 재시도를 다 쓰고도 실패한 독성 메시지를 로그로 드러낸다.
+	// (운영에선 여기에 알림·대시보드를 붙이고, 원인을 고친 뒤 bus.Redeliver 로 재투입한다.)
+	if os.Getenv("NATS_JETSTREAM") != "" {
+		if err := bus.SubscribeDLQ("readmodeldlq", func(dl eventbus.DeadLetter) error {
+			logger.Warn("죽은 편지(DLQ) — 처리 포기된 이벤트",
+				"subject", dl.Subject, "group", dl.Group,
+				"attempts", dl.Attempts, "error", dl.Error, "event_id", dl.Event.ID)
+			return nil
+		}); err != nil {
+			logger.Error("DLQ 모니터 구독 실패", "err", err)
+		} else {
+			logger.Info("DLQ 모니터 시작 — dlq.> 구독 중")
+		}
+	}
+
 	mux := http.NewServeMux()
 	readmodel.NewQueryHandler(store).Register(mux)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {

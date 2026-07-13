@@ -12,8 +12,9 @@ import (
 // core 모드(무영속)와 JetStream 모드(영속 스트림 + 내구 소비자)를 모두 지원한다.
 // 위 계층에는 Envelope 만 노출하고, 어느 모드인지는 숨긴다.
 type Bus struct {
-	nc *nats.Conn
-	js nats.JetStreamContext // nil 이면 core 모드
+	nc    *nats.Conn
+	js    nats.JetStreamContext // nil 이면 core 모드
+	retry retryPolicy           // 처리 실패 시 재시도·DLQ 정책(JetStream 모드)
 }
 
 // Connect 는 NATS 서버에 연결한다. url 예: nats://localhost:4222
@@ -36,7 +37,10 @@ func Connect(url string, opts ...Option) (*Bus, error) {
 		return nil, fmt.Errorf("nats 연결: %w", err)
 	}
 
-	b := &Bus{nc: nc}
+	b := &Bus{nc: nc, retry: defaultRetry}
+	if cfg.retry != nil {
+		b.retry = *cfg.retry
+	}
 	if cfg.jetstream {
 		js, err := nc.JetStream()
 		if err != nil {
@@ -101,8 +105,23 @@ func (b *Bus) Subscribe(subject, group string, handler Handler) error {
 					env.ID = fmt.Sprintf("js-%d", meta.Sequence.Stream) // 재전송돼도 같은 값 → 멱등 키
 				}
 			}
-			if err := handler(env); err != nil {
-				_ = m.Nak() // 처리 실패 → 재전송 요청
+
+			err := handler(env)
+			if err == nil {
+				_ = m.Ack()
+				return
+			}
+
+			// 처리 실패. 몇 번째 시도인지 보고 재시도할지 DLQ 로 보낼지 정한다.
+			attempt := deliveryCount(m)
+			if attempt < b.retry.maxDeliver {
+				_ = m.Nak() // 아직 여유 있음 → 재전송(소비자 BackOff 스케줄대로 지연)
+				return
+			}
+			// 마지막 시도까지 실패 = 독성 메시지. DLQ 로 보내고 Ack 해서 무한 재전송을 끊는다.
+			// (DLQ 발행이 실패하면 Ack 하지 않고 Nak — 잃느니 다시 시도한다.)
+			if derr := b.publishDeadLetter(subject, group, attempt, err, env); derr != nil {
+				_ = m.Nak()
 				return
 			}
 			_ = m.Ack()
@@ -110,6 +129,8 @@ func (b *Bus) Subscribe(subject, group string, handler Handler) error {
 			nats.Durable(durableName(group, subject)),
 			nats.ManualAck(),
 			nats.AckExplicit(),
+			nats.MaxDeliver(b.retry.maxDeliver),
+			nats.BackOff(b.retry.backoff),
 		)
 		return err
 	}
