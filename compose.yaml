@@ -126,3 +126,23 @@ services:
       - "8087:8080"
     depends_on:
       - nats
+
+  # Next.js 프런트엔드. 서버 컴포넌트/Route Handler 가 compose 내부 DNS 로 Go 서비스를
+  # 호출한다(서버-투-서버). 브라우저는 web(3000) 하고만 통신 → CORS 불필요.
+  web:
+    build:
+      context: ./web
+    environment:
+      CATALOG_URL: http://catalog:8080
+      CUSTOMER_URL: http://customer:8080
+      CART_URL: http://cart:8080
+      ORDERING_URL: http://ordering:8080
+      READMODEL_URL: http://readmodel:8080
+    ports:
+      - "3000:3000"
+    depends_on:
+      - catalog
+      - customer
+      - cart
+      - ordering
+      - readmodel
