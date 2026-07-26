@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { getSession } from "@/lib/session";
 import { getMyOrders, won, statusLabel } from "@/lib/api";
+import ReturnButton from "./ReturnButton";
 
 const statusColor: Record<string, string> = {
   PLACED: "text-neutral-300 bg-white/5",
@@ -67,6 +68,7 @@ export default async function OrdersPage() {
                 >
                   {statusLabel(o.status)}
                 </span>
+                {o.status === "SHIPPED" && <ReturnButton orderId={o.order_id} />}
               </div>
             </div>
           ))}

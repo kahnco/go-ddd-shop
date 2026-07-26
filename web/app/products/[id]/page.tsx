@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getProduct, won } from "@/lib/api";
+import ProductThumb from "@/app/components/ProductThumb";
 import AddToCart from "./AddToCart";
 
 // Next 15 — 동적 라우트의 params 는 비동기.
@@ -16,9 +17,7 @@ export default async function ProductPage({ params }: { params: Promise<{ id: st
       </Link>
 
       <div className="mt-6 grid grid-cols-1 gap-8 sm:grid-cols-2">
-        <div className="flex aspect-square items-center justify-center rounded-2xl bg-white/5 text-7xl">
-          📦
-        </div>
+        <ProductThumb product={product} className="aspect-square" size="text-8xl" />
         <div>
           <h1 className="text-2xl font-bold">{product.name}</h1>
           <p className="mt-2 text-xl text-blue-400">{won(product.price)}</p>

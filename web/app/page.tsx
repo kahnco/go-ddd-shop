@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { listProducts, won } from "@/lib/api";
+import ProductThumb from "@/app/components/ProductThumb";
 
 // 서버 컴포넌트 — 카탈로그를 서버(컨테이너)에서 직접 호출해 SSR 로 그린다.
 // 브라우저는 완성된 HTML 을 받으므로 CORS 도, 로딩 스피너도 필요 없다.
@@ -29,9 +30,7 @@ export default async function Home() {
               href={`/products/${p.product_id}`}
               className="group rounded-xl border border-white/10 bg-white/[0.03] p-5 transition-colors hover:border-blue-500/30 hover:bg-blue-500/[0.06]"
             >
-              <div className="mb-6 flex aspect-square items-center justify-center rounded-lg bg-white/5 text-4xl">
-                📦
-              </div>
+              <ProductThumb product={p} className="mb-5 aspect-square" size="text-6xl" />
               <h2 className="font-semibold">{p.name}</h2>
               <p className="mt-1 text-sm text-neutral-400">{won(p.price)}</p>
             </Link>
