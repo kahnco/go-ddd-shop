@@ -1,23 +1,16 @@
 import { NextResponse } from "next/server";
-import { services } from "@/lib/api";
+import { removeCartItem } from "@/lib/api";
+import { apiError, unauthorized } from "@/lib/http";
 import { getSession } from "@/lib/session";
 
 export async function POST(req: Request) {
   const session = await getSession();
-  if (!session) {
-    return NextResponse.json({ error: "로그인이 필요합니다" }, { status: 401 });
-  }
+  if (!session) return unauthorized();
   const { product_id } = await req.json();
-  const res = await fetch(
-    `${services.cart}/carts/${encodeURIComponent(session.customerId)}/items/${encodeURIComponent(product_id)}`,
-    {
-      method: "DELETE",
-      headers: { Authorization: `Bearer ${session.token}` },
-    },
-  );
-  if (!res.ok) {
-    const e = await res.json().catch(() => ({}));
-    return NextResponse.json({ error: e.error ?? "삭제 실패" }, { status: res.status });
+  try {
+    await removeCartItem(session.customerId, session.token, product_id);
+    return NextResponse.json({ ok: true });
+  } catch (e) {
+    return apiError(e);
   }
-  return NextResponse.json({ ok: true });
 }

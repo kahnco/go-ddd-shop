@@ -2,3 +2,12 @@ node_modules
 .next
 npm-debug.log
 .git
+# 테스트 아티팩트는 프로덕션 이미지에서 제외
+**/*.test.ts
+**/*.test.tsx
+test
+e2e
+vitest.config.ts
+playwright.config.ts
+playwright-report
+coverage

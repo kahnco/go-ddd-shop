@@ -33,8 +33,10 @@ export default function CartActions({ rows, total }: { rows: Row[]; total: numbe
       setErr(body.error ?? "결제에 실패했습니다");
       return;
     }
+    // router.refresh() 를 부르면 안 된다 — 비워진 장바구니가 다시 SSR 되며
+    // 이 컴포넌트(확인 화면 포함)가 빈 장바구니 뷰로 교체돼 확인 문구가 사라진다.
+    // 주문 확인은 orderId 상태로 유지하고, "내 주문 보기"로 이동한다.
     setOrderId(body.order_id);
-    router.refresh();
   }
 
   if (orderId) {
