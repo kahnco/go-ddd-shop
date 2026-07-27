@@ -11,6 +11,7 @@ export const services = {
   cart: process.env.CART_URL ?? "http://localhost:8086",
   ordering: process.env.ORDERING_URL ?? "http://localhost:8080",
   readmodel: process.env.READMODEL_URL ?? "http://localhost:8087",
+  inventory: process.env.INVENTORY_URL ?? "http://localhost:8088",
 };
 
 // 백엔드가 4xx/5xx 를 주면 던지는 에러. status 를 담아 라우트 핸들러가 그대로 되돌린다.
@@ -74,6 +75,19 @@ export async function getProduct(id: string): Promise<Product | null> {
     });
   } catch {
     return null;
+  }
+}
+
+/** 재고 수량(재고 서비스). 조회 실패·미설정은 0(품절)으로 본다. */
+export async function getStock(productId: string): Promise<number> {
+  try {
+    const { available } = await apiFetch<{ available: number }>(
+      `${services.inventory}/stock/${encodeURIComponent(productId)}`,
+      { cache: "no-store" },
+    );
+    return available;
+  } catch {
+    return 0;
   }
 }
 

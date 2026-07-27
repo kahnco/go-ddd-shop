@@ -1,13 +1,24 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import "./globals.css";
+import { getSession } from "@/lib/session";
+import { getCart } from "@/lib/api";
+import LogoutButton from "@/app/components/LogoutButton";
 
 export const metadata: Metadata = {
   title: "Go DDD Shop",
   description: "이벤트 기반 쇼핑몰 — Next.js 프런트엔드",
 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  // 로그인 상태면 장바구니 개수를 배지로 보여준다.
+  const session = await getSession();
+  let cartCount = 0;
+  if (session) {
+    const cart = await getCart(session.customerId, session.token);
+    cartCount = cart.items.reduce((n, it) => n + it.quantity, 0);
+  }
+
   return (
     <html lang="ko">
       <body className="min-h-screen">
@@ -20,15 +31,26 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               <Link href="/" className="transition-colors hover:text-white">
                 상품
               </Link>
-              <Link href="/cart" className="transition-colors hover:text-white">
+              <Link href="/cart" className="relative transition-colors hover:text-white">
                 장바구니
+                {cartCount > 0 && (
+                  <span className="absolute -right-4 -top-2 rounded-full bg-blue-600 px-1.5 py-0.5 text-[10px] font-bold text-white">
+                    {cartCount}
+                  </span>
+                )}
               </Link>
-              <Link href="/orders" className="transition-colors hover:text-white">
-                내 주문
-              </Link>
-              <Link href="/login" className="transition-colors hover:text-white">
-                로그인
-              </Link>
+              {session ? (
+                <>
+                  <Link href="/orders" className="transition-colors hover:text-white">
+                    내 주문
+                  </Link>
+                  <LogoutButton />
+                </>
+              ) : (
+                <Link href="/login" className="transition-colors hover:text-white">
+                  로그인
+                </Link>
+              )}
             </div>
           </nav>
         </header>

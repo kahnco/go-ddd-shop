@@ -35,16 +35,11 @@ test("가입 → 상품 탐색 → 담기 → 결제 → 내 주문 → 반품",
   await page.getByRole("button", { name: "내 주문 보기 →" }).click();
   await expect(page).toHaveURL(/\/orders$/);
 
-  // 6) 사가가 배송까지 진행되길 기다린다(SSR 이라 새로고침으로 갱신).
-  await expect(async () => {
-    await page.reload();
-    await expect(page.getByRole("button", { name: "반품 요청" })).toBeVisible({ timeout: 1500 });
-  }).toPass({ timeout: 60_000 });
+  // 6) 실시간 폴링이 사가 진행을 반영한다 — 새로고침 없이 "배송 중"이 뜰 때까지 기다린다.
+  await expect(page.getByRole("button", { name: "반품 요청" })).toBeVisible({ timeout: 60_000 });
+  await expect(page.getByText("배송 중")).toBeVisible();
 
-  // 7) 반품 요청 → 환불 흐름 진입
+  // 7) 반품 요청 → 환불 흐름(역시 실시간으로 갱신).
   await page.getByRole("button", { name: "반품 요청" }).click();
-  await expect(async () => {
-    await page.reload();
-    await expect(page.getByText(/환불 완료|반품 요청/)).toBeVisible({ timeout: 1500 });
-  }).toPass({ timeout: 30_000 });
+  await expect(page.getByText(/환불 완료|반품 요청/)).toBeVisible({ timeout: 30_000 });
 });

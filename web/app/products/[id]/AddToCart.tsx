@@ -3,7 +3,15 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 
-export default function AddToCart({ productId }: { productId: string }) {
+export default function AddToCart({
+  productId,
+  soldOut = false,
+  maxQty = 99,
+}: {
+  productId: string;
+  soldOut?: boolean;
+  maxQty?: number;
+}) {
   const [qty, setQty] = useState(1);
   const [msg, setMsg] = useState("");
   const [loading, setLoading] = useState(false);
@@ -30,14 +38,26 @@ export default function AddToCart({ productId }: { productId: string }) {
     setMsg("장바구니에 담았습니다 ✓");
   }
 
+  if (soldOut) {
+    return (
+      <button
+        disabled
+        className="mt-8 cursor-not-allowed rounded-lg bg-white/5 px-5 py-2 font-medium text-neutral-500"
+      >
+        품절
+      </button>
+    );
+  }
+
   return (
     <div className="mt-8 flex items-center gap-3">
       <input
         type="number"
         min={1}
+        max={maxQty}
         aria-label="수량"
         value={qty}
-        onChange={(e) => setQty(Math.max(1, Number(e.target.value)))}
+        onChange={(e) => setQty(Math.min(maxQty, Math.max(1, Number(e.target.value))))}
         className="w-20 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-center"
       />
       <button

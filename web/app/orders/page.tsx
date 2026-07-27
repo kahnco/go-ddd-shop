@@ -1,16 +1,7 @@
 import Link from "next/link";
 import { getSession } from "@/lib/session";
-import { getMyOrders, won, statusLabel } from "@/lib/api";
-import ReturnButton from "./ReturnButton";
-
-const statusColor: Record<string, string> = {
-  PLACED: "text-neutral-300 bg-white/5",
-  CONFIRMED: "text-blue-300 bg-blue-500/10",
-  SHIPPED: "text-emerald-300 bg-emerald-500/10",
-  CANCELLED: "text-red-300 bg-red-500/10",
-  RETURN_REQUESTED: "text-amber-300 bg-amber-500/10",
-  REFUNDED: "text-neutral-400 bg-white/5",
-};
+import { getMyOrders } from "@/lib/api";
+import LiveOrders from "./LiveOrders";
 
 export default async function OrdersPage() {
   const session = await getSession();
@@ -36,7 +27,8 @@ export default async function OrdersPage() {
     <div>
       <h1 className="mb-2 text-2xl font-bold">내 주문</h1>
       <p className="mb-8 text-sm text-neutral-500">
-        읽기 모델(CQRS)이 주문 이벤트로 만든 조회 전용 뷰입니다.
+        읽기 모델(CQRS)이 주문 이벤트로 만든 조회 전용 뷰입니다. 사가가 진행 중이면 실시간으로
+        갱신됩니다.
       </p>
 
       {orders.length === 0 ? (
@@ -48,31 +40,7 @@ export default async function OrdersPage() {
           </Link>
         </div>
       ) : (
-        <div className="space-y-3">
-          {orders.map((o) => (
-            <div
-              key={o.order_id}
-              className="flex items-center justify-between rounded-xl border border-white/10 bg-white/[0.03] px-5 py-4"
-            >
-              <div>
-                <p className="font-mono text-sm text-neutral-300">{o.order_id}</p>
-                <p className="mt-1 text-xs text-neutral-500">
-                  상품 {o.items?.length ?? 0}종
-                  {o.channel ? ` · ${o.channel}` : ""}
-                </p>
-              </div>
-              <div className="flex items-center gap-4">
-                <span className="text-sm text-neutral-300">{won(o.total)}</span>
-                <span
-                  className={`rounded-full px-3 py-1 text-xs font-medium ${statusColor[o.status] ?? "bg-white/5 text-neutral-300"}`}
-                >
-                  {statusLabel(o.status)}
-                </span>
-                {o.status === "SHIPPED" && <ReturnButton orderId={o.order_id} />}
-              </div>
-            </div>
-          ))}
-        </div>
+        <LiveOrders initial={orders} />
       )}
     </div>
   );

@@ -49,12 +49,16 @@ func main() {
 		defer pg.Close()
 		_ = pg.Seed(context.Background(), "prod-A", 10)
 		_ = pg.Seed(context.Background(), "prod-B", 5)
+		_ = pg.Seed(context.Background(), "prod-C", 8)
+		_ = pg.Seed(context.Background(), "prod-D", 3)
 		stockRepo, reservations = pg, pg
 		logger.Info("재고 저장소 = PostgreSQL(다중 replica 안전)")
 	} else {
 		mem := infra.NewMemoryStockRepository()
 		mem.Seed("prod-A", 10)
 		mem.Seed("prod-B", 5)
+		mem.Seed("prod-C", 8)
+		mem.Seed("prod-D", 3)
 		stockRepo = mem
 		reservations = infra.NewMemoryReservationRepository()
 	}
@@ -83,6 +87,7 @@ func main() {
 
 	// 관찰성·probe 용 최소 HTTP 서버(별도 고루틴).
 	mux := http.NewServeMux()
+	infra.NewStockHandler(stockRepo).Register(mux) // GET /stock/{productId} — 프런트 재고 표시용
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
