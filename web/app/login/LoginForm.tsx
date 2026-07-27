@@ -53,6 +53,7 @@ export default function LoginForm() {
       <form onSubmit={submit} className="space-y-3">
         {mode === "register" && (
           <input
+            aria-label="이름"
             placeholder="이름"
             value={name}
             onChange={(e) => setName(e.target.value)}
@@ -61,6 +62,7 @@ export default function LoginForm() {
         )}
         <input
           type="email"
+          aria-label="이메일"
           placeholder="이메일"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
@@ -69,6 +71,7 @@ export default function LoginForm() {
         />
         <input
           type="password"
+          aria-label="비밀번호"
           placeholder="비밀번호(8자 이상)"
           value={password}
           onChange={(e) => setPassword(e.target.value)}

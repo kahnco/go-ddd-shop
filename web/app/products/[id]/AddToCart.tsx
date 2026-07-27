@@ -35,6 +35,7 @@ export default function AddToCart({ productId }: { productId: string }) {
       <input
         type="number"
         min={1}
+        aria-label="수량"
         value={qty}
         onChange={(e) => setQty(Math.max(1, Number(e.target.value)))}
         className="w-20 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-center"

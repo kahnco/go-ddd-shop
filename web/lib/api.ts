@@ -56,7 +56,12 @@ export type OrderView = {
 // ─── 조회(서버 컴포넌트, SSR) — 실패해도 화면이 죽지 않게 기본값 ────────────
 export async function listProducts(): Promise<Product[]> {
   try {
-    return await apiFetch<Product[]>(`${services.catalog}/products`, { cache: "no-store" });
+    const products = await apiFetch<Product[]>(`${services.catalog}/products`, {
+      cache: "no-store",
+    });
+    // 카탈로그는 순서를 보장하지 않으므로(맵 순회) product_id 로 정렬 —
+    // 화면 순서가 안정되고, 시각 회귀 테스트도 결정적이 된다.
+    return [...products].sort((a, b) => a.product_id.localeCompare(b.product_id));
   } catch {
     return [];
   }
