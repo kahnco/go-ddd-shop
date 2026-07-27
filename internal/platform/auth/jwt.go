@@ -26,9 +26,10 @@ var (
 	ErrExpiredToken   = errors.New("토큰이 만료되었습니다")
 )
 
-// Claims 는 토큰에 담는 최소 정보. sub=회원 ID, iat=발급시각, exp=만료시각(유닉스 초).
+// Claims 는 토큰에 담는 최소 정보. sub=회원 ID, role=권한(customer/admin), iat/exp.
 type Claims struct {
 	Subject   string `json:"sub"`
+	Role      string `json:"role,omitempty"`
 	IssuedAt  int64  `json:"iat"`
 	ExpiresAt int64  `json:"exp"`
 }
@@ -39,12 +40,12 @@ var b64 = base64.RawURLEncoding
 // 고정 헤더({"alg":"HS256","typ":"JWT"}). 우리는 HS256 만 쓰므로 미리 인코딩해 둔다.
 const encodedHeader = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9"
 
-// Issue 는 subject(회원 ID)에 대해 now 기준 ttl 동안 유효한 HS256 JWT 를 만든다.
-func Issue(secret, subject string, ttl time.Duration, now time.Time) (string, error) {
+// Issue 는 subject(회원 ID)·role 에 대해 now 기준 ttl 동안 유효한 HS256 JWT 를 만든다.
+func Issue(secret, subject, role string, ttl time.Duration, now time.Time) (string, error) {
 	if secret == "" {
 		return "", ErrEmptySecret
 	}
-	claims := Claims{Subject: subject, IssuedAt: now.Unix(), ExpiresAt: now.Add(ttl).Unix()}
+	claims := Claims{Subject: subject, Role: role, IssuedAt: now.Unix(), ExpiresAt: now.Add(ttl).Unix()}
 	payloadJSON, err := json.Marshal(claims)
 	if err != nil {
 		return "", err

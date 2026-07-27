@@ -18,9 +18,9 @@ type PasswordHasher interface {
 	Compare(hash, plain string) bool
 }
 
-// TokenIssuer 는 로그인 성공 시 회원 ID 로 접근 토큰(JWT)을 발급하는 포트.
+// TokenIssuer 는 로그인 성공 시 회원 ID·권한으로 접근 토큰(JWT)을 발급하는 포트.
 type TokenIssuer interface {
-	Issue(customerID string) (string, error)
+	Issue(customerID, role string) (string, error)
 }
 
 // IDGenerator 는 새 회원 ID 를 만든다(서버가 정한다 — 클라이언트가 못 정한다).
@@ -47,9 +47,24 @@ func NewCustomerService(
 	return &CustomerService{repo: repo, publisher: publisher, hasher: hasher, tokens: tokens, ids: ids}
 }
 
-// Register 는 회원을 등록한다. 이메일 중복·약한 비밀번호는 거부하고,
-// 비밀번호는 해시해 저장한다. 회원 ID 는 서버가 생성한다.
+// Register 는 일반 회원(role=customer)을 등록한다.
 func (s *CustomerService) Register(ctx context.Context, email, password, name string) (domain.CustomerID, error) {
+	return s.register(ctx, email, password, name, "customer")
+}
+
+// EnsureAdmin 은 관리자 계정을 보장한다(없으면 만들고, 이미 있으면 그냥 둔다). 기동 시 시드용.
+func (s *CustomerService) EnsureAdmin(ctx context.Context, email, password, name string) error {
+	_, err := s.register(ctx, email, password, name, "admin")
+	if errors.Is(err, domain.ErrCustomerExists) {
+		return nil
+	}
+	return err
+}
+
+func (s *CustomerService) register(
+	ctx context.Context,
+	email, password, name, role string,
+) (domain.CustomerID, error) {
 	if len(password) < 8 {
 		return "", domain.ErrWeakPassword
 	}
@@ -64,7 +79,7 @@ func (s *CustomerService) Register(ctx context.Context, email, password, name st
 		return "", err
 	}
 	id := domain.CustomerID(s.ids.NewID())
-	customer, err := domain.NewCustomer(id, email, name, hash)
+	customer, err := domain.NewCustomer(id, email, name, hash, role)
 	if err != nil {
 		return "", err
 	}
@@ -91,7 +106,7 @@ func (s *CustomerService) Login(ctx context.Context, email, password string) (st
 	if !s.hasher.Compare(customer.PasswordHash(), password) {
 		return "", domain.ErrInvalidCredentials
 	}
-	return s.tokens.Issue(string(customer.ID()))
+	return s.tokens.Issue(string(customer.ID()), customer.Role())
 }
 
 func (s *CustomerService) Get(ctx context.Context, id string) (*domain.Customer, error) {

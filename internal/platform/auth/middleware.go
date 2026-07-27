@@ -50,6 +50,14 @@ func Subject(ctx context.Context) string {
 	return ""
 }
 
+// Role 은 인증된 회원의 권한(customer/admin)을 돌려준다.
+func Role(ctx context.Context) string {
+	if c, ok := ctx.Value(claimsKey).(Claims); ok {
+		return c.Role
+	}
+	return ""
+}
+
 // Token 은 컨텍스트에 실린 원본 JWT 를 돌려준다.
 // 하위 서비스를 호출할 때 그대로 전달해 신원을 이어 나른다(예: 장바구니→주문).
 func Token(ctx context.Context) string {

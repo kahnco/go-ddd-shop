@@ -12,3 +12,8 @@ export function apiError(e: unknown): NextResponse {
 export function unauthorized(): NextResponse {
   return NextResponse.json({ error: "로그인이 필요합니다" }, { status: 401 });
 }
+
+// 권한 부족 403.
+export function forbidden(): NextResponse {
+  return NextResponse.json({ error: "권한이 없습니다" }, { status: 403 });
+}

@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/kahnco/go-ddd-shop/internal/customer/domain"
@@ -48,7 +49,9 @@ func (fakeHasher) Compare(hash, plain string) bool   { return hash == "hashed:"+
 
 type fakeIssuer struct{}
 
-func (fakeIssuer) Issue(customerID string) (string, error) { return "tok:" + customerID, nil }
+func (fakeIssuer) Issue(customerID, role string) (string, error) {
+	return "tok:" + customerID + ":" + role, nil
+}
 
 type seqIDs struct{ n int }
 
@@ -101,8 +104,26 @@ func TestLogin_성공하면_토큰발급(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Login: %v", err)
 	}
-	if token != "tok:"+string(id) {
-		t.Fatalf("토큰 = tok:%s 여야 하는데 %s", id, token)
+	if token != "tok:"+string(id)+":customer" {
+		t.Fatalf("토큰 = tok:%s:customer 여야 하는데 %s", id, token)
+	}
+}
+
+func TestEnsureAdmin_관리자_로그인은_admin_역할_토큰(t *testing.T) {
+	svc, _ := newSvc()
+	if err := svc.EnsureAdmin(context.Background(), "admin@shop.com", "adminadmin", "관리자"); err != nil {
+		t.Fatalf("EnsureAdmin: %v", err)
+	}
+	token, err := svc.Login(context.Background(), "admin@shop.com", "adminadmin")
+	if err != nil {
+		t.Fatalf("admin 로그인: %v", err)
+	}
+	if !strings.HasSuffix(token, ":admin") {
+		t.Fatalf("admin 역할 토큰이어야 하는데: %s", token)
+	}
+	// 두 번 호출해도 멱등(이미 있으면 에러 없음).
+	if err := svc.EnsureAdmin(context.Background(), "admin@shop.com", "adminadmin", "관리자"); err != nil {
+		t.Fatalf("EnsureAdmin 은 멱등이어야: %v", err)
 	}
 }
 

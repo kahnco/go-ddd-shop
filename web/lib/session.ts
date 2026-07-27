@@ -4,16 +4,17 @@ import { cookies } from "next/headers";
 // 서버(BFF·서버 컴포넌트)만 쿠키를 꺼내 Go 서비스를 Bearer 로 호출한다.
 const COOKIE = "shop_session";
 
-export type Session = { token: string; customerId: string };
+export type Session = { token: string; customerId: string; role: string };
 
-// JWT 페이로드(가운데 조각)에서 sub(회원 ID)를 꺼낸다. 검증은 백엔드가 하므로 여기선 디코드만.
-function decodeSub(token: string): string {
+// JWT 페이로드(가운데 조각)에서 sub·role 을 꺼낸다. 검증은 백엔드가 하므로 여기선 디코드만.
+function decodeClaims(token: string): { sub: string; role: string } {
   try {
     const payload = token.split(".")[1] ?? "";
     const json = Buffer.from(payload, "base64url").toString("utf8");
-    return (JSON.parse(json).sub as string) ?? "";
+    const c = JSON.parse(json);
+    return { sub: (c.sub as string) ?? "", role: (c.role as string) ?? "customer" };
   } catch {
-    return "";
+    return { sub: "", role: "customer" };
   }
 }
 
@@ -29,7 +30,8 @@ export async function getSession(): Promise<Session | null> {
 }
 
 export async function setSession(token: string): Promise<Session> {
-  const s: Session = { token, customerId: decodeSub(token) };
+  const { sub, role } = decodeClaims(token);
+  const s: Session = { token, customerId: sub, role };
   (await cookies()).set(COOKIE, JSON.stringify(s), {
     httpOnly: true,
     sameSite: "lax",

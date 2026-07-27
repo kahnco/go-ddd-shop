@@ -10,16 +10,21 @@ type Customer struct {
 	email        string
 	name         string
 	passwordHash string
+	role         string // "customer" 또는 "admin"
 	events       []DomainEvent
 }
 
 // NewCustomer 는 회원을 등록한다. 이메일이 비면 거부한다.
 // passwordHash 는 이미 해시된 값을 받는다(평문은 도메인에 들어오지 않는다).
-func NewCustomer(id CustomerID, email, name, passwordHash string) (*Customer, error) {
+// role 이 비면 "customer" 로 둔다.
+func NewCustomer(id CustomerID, email, name, passwordHash, role string) (*Customer, error) {
 	if email == "" {
 		return nil, ErrInvalidCustomer
 	}
-	c := &Customer{id: id, email: email, name: name, passwordHash: passwordHash}
+	if role == "" {
+		role = "customer"
+	}
+	c := &Customer{id: id, email: email, name: name, passwordHash: passwordHash, role: role}
 	c.record(CustomerRegistered{CustomerID: id, Email: email})
 	return c, nil
 }
@@ -27,6 +32,7 @@ func NewCustomer(id CustomerID, email, name, passwordHash string) (*Customer, er
 func (c *Customer) ID() CustomerID       { return c.id }
 func (c *Customer) Email() string        { return c.email }
 func (c *Customer) Name() string         { return c.name }
+func (c *Customer) Role() string         { return c.role }
 func (c *Customer) PasswordHash() string { return c.passwordHash }
 func (c *Customer) record(e DomainEvent) { c.events = append(c.events, e) }
 func (c *Customer) PullEvents() []DomainEvent {

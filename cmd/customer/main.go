@@ -44,6 +44,11 @@ func main() {
 		infra.RandomIDGenerator{},
 	)
 
+	// 관리자 계정 시드(멱등). 데모: admin@shop.com / adminadmin.
+	if err := svc.EnsureAdmin(context.Background(), "admin@shop.com", "adminadmin", "관리자"); err != nil {
+		logger.Warn("관리자 시드 실패", "err", err)
+	}
+
 	mux := http.NewServeMux()
 	infra.NewCustomerHandler(svc).Register(mux)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {

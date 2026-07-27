@@ -41,7 +41,7 @@ func authReq(t *testing.T, customerID, method, path, body string) *http.Request 
 	} else {
 		r = httptest.NewRequest(method, path, bytes.NewBufferString(body))
 	}
-	token, err := auth.Issue(testSecret, customerID, time.Hour, time.Now())
+	token, err := auth.Issue(testSecret, customerID, "", time.Hour, time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}

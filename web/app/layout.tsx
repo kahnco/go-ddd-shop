@@ -44,6 +44,11 @@ export default async function RootLayout({ children }: { children: React.ReactNo
                   <Link href="/orders" className="transition-colors hover:text-white">
                     내 주문
                   </Link>
+                  {session.role === "admin" && (
+                    <Link href="/admin" className="text-amber-300 transition-colors hover:text-amber-200">
+                      관리자
+                    </Link>
+                  )}
                   <LogoutButton />
                 </>
               ) : (

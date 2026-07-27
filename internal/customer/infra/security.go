@@ -35,8 +35,8 @@ func NewJWTIssuer(secret string, ttl time.Duration) JWTIssuer {
 	return JWTIssuer{secret: secret, ttl: ttl}
 }
 
-func (i JWTIssuer) Issue(customerID string) (string, error) {
-	return auth.Issue(i.secret, customerID, i.ttl, time.Now())
+func (i JWTIssuer) Issue(customerID, role string) (string, error) {
+	return auth.Issue(i.secret, customerID, role, i.ttl, time.Now())
 }
 
 // RandomIDGenerator 는 IDGenerator 포트를 랜덤 16진 문자열로 구현한다("cust-" 접두).

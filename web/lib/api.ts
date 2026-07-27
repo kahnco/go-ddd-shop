@@ -169,3 +169,37 @@ export async function requestReturn(orderId: string, token: string): Promise<voi
     headers: bearer(token),
   });
 }
+
+// ─── 통계·관리자 ───────────────────────────────────────────────────────────
+export type Stats = {
+  counts: Record<string, number>;
+  order_count: number;
+  total_revenue: number;
+};
+
+/** 주문 집계(읽기 모델의 증분 집계). 관리자 대시보드용. */
+export async function getStats(): Promise<Stats> {
+  try {
+    return await apiFetch<Stats>(`${services.readmodel}/stats/orders`, { cache: "no-store" });
+  } catch {
+    return { counts: {}, order_count: 0, total_revenue: 0 };
+  }
+}
+
+/** 상품 등록(카탈로그 write). 인가는 BFF 가 role=admin 으로 게이트한다. */
+export async function addProduct(productId: string, name: string, price: number): Promise<void> {
+  await apiFetch(`${services.catalog}/products`, {
+    method: "POST",
+    headers: jsonHeaders,
+    body: JSON.stringify({ product_id: productId, name, price }),
+  });
+}
+
+/** 가격 변경(카탈로그 write). */
+export async function changePrice(productId: string, price: number): Promise<void> {
+  await apiFetch(`${services.catalog}/products/${encodeURIComponent(productId)}/price`, {
+    method: "PUT",
+    headers: jsonHeaders,
+    body: JSON.stringify({ price }),
+  });
+}
