@@ -35,7 +35,8 @@ func main() {
 	integration.RegisterUpcasters()
 
 	store := readmodel.NewMemoryStore()
-	projector := readmodel.NewProjector(store, logger)
+	hub := readmodel.NewHub() // SSE: 주문 이벤트를 구독자에게 실시간 push
+	projector := readmodel.NewProjector(store, logger).WithHub(hub)
 
 	// 주문의 모든 생명주기 이벤트를 하나의 구독으로 받는다.
 	if err := bus.Subscribe("ordering.order.>", "readmodel", projector.Handle); err != nil {
@@ -61,6 +62,7 @@ func main() {
 
 	mux := http.NewServeMux()
 	readmodel.NewQueryHandler(store).Register(mux)
+	readmodel.NewSSEHandler(store, hub).Register(mux) // GET /orders/stream?customer=X
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))

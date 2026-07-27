@@ -16,10 +16,17 @@ import (
 type Projector struct {
 	store Store
 	log   *slog.Logger
+	hub   *Hub // 있으면 갱신을 SSE 구독자에게 push(없으면 no-op)
 }
 
 func NewProjector(store Store, log *slog.Logger) *Projector {
 	return &Projector{store: store, log: log}
+}
+
+// WithHub 는 SSE 허브를 붙인다 — 프로젝션이 갱신될 때마다 해당 회원에게 push 한다.
+func (p *Projector) WithHub(h *Hub) *Projector {
+	p.hub = h
+	return p
 }
 
 // Handle 은 ordering.order.> 로 오는 이벤트를 이름으로 갈라 처리한다.
@@ -28,6 +35,7 @@ func (p *Projector) Handle(env eventbus.Envelope) error {
 	_, span := telemetry.StartSpan(ctx, "project "+env.Name)
 	defer span.End()
 
+	var orderID, customerID string
 	switch env.Name {
 	case "order.placed":
 		var e struct {
@@ -44,31 +52,49 @@ func (p *Projector) Handle(env eventbus.Envelope) error {
 			OrderID: e.OrderID, CustomerID: e.CustomerID,
 			Status: "PLACED", Total: e.Total, Channel: e.Channel, Items: e.Items,
 		})
+		orderID, customerID = e.OrderID, e.CustomerID
 	case "order.paid":
-		p.setStatus(env, "PAID")
+		orderID = p.setStatus(env, "PAID")
 	case "order.confirmed":
-		p.setStatus(env, "CONFIRMED")
+		orderID = p.setStatus(env, "CONFIRMED")
 	case "order.shipped":
-		p.setStatus(env, "SHIPPED")
+		orderID = p.setStatus(env, "SHIPPED")
 	case "order.cancelled":
-		p.setStatus(env, "CANCELLED")
+		orderID = p.setStatus(env, "CANCELLED")
 	case "order.return_requested":
-		p.setStatus(env, "RETURN_REQUESTED")
+		orderID = p.setStatus(env, "RETURN_REQUESTED")
 	case "order.refunded":
-		p.setStatus(env, "REFUNDED")
+		orderID = p.setStatus(env, "REFUNDED")
 	default:
 		return nil // 관심 없는 이벤트는 무시
 	}
 	telemetry.RecordEventConsumed(env.Name, "ok")
+	p.notify(orderID, customerID) // SSE 구독자에게 최신 주문 목록 push
 	return nil
 }
 
-func (p *Projector) setStatus(env eventbus.Envelope, status string) {
+func (p *Projector) setStatus(env eventbus.Envelope, status string) string {
 	var e struct {
 		OrderID string `json:"order_id"`
 	}
 	if err := env.Into(&e); err != nil {
-		return
+		return ""
 	}
 	p.store.SetStatus(e.OrderID, status)
+	return e.OrderID
+}
+
+// notify 는 갱신된 주문의 주인에게 최신 주문 목록을 SSE 로 밀어 준다.
+func (p *Projector) notify(orderID, customerID string) {
+	if p.hub == nil || orderID == "" {
+		return
+	}
+	if customerID == "" {
+		if v, ok := p.store.Get(orderID); ok {
+			customerID = v.CustomerID
+		}
+	}
+	if customerID != "" {
+		p.hub.Publish(customerID, ordersJSON(p.store, customerID))
+	}
 }

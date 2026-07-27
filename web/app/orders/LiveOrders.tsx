@@ -13,42 +13,28 @@ const statusColor: Record<string, string> = {
   REFUNDED: "text-neutral-400 bg-white/5",
 };
 
-// 아직 움직이는 중인(전이) 상태 — 하나라도 있으면 폴링을 계속한다.
-const TRANSIENT = ["PLACED", "CONFIRMED", "RETURN_REQUESTED"];
-
 export default function LiveOrders({ initial }: { initial: OrderView[] }) {
   const [orders, setOrders] = useState(initial);
   const [live, setLive] = useState(false);
 
-  // 사가가 진행 중이면 2초마다 상태를 당겨와 자동 갱신하고, 모두 종결되면 멈춘다.
+  // SSE 구독 — 서버(readmodel)가 주문 이벤트를 밀어 준다. 폴링 없음.
   useEffect(() => {
-    if (!orders.some((o) => TRANSIENT.includes(o.status))) return;
-    let active = true;
-    setLive(true);
-    const tick = async () => {
-      const res = await fetch("/api/orders");
-      if (!active) return;
-      if (res.ok) {
-        const data: OrderView[] = await res.json();
-        setOrders(data);
-        if (!data.some((o) => TRANSIENT.includes(o.status))) {
-          setLive(false);
-          return;
-        }
+    const es = new EventSource("/api/orders/stream");
+    es.onopen = () => setLive(true);
+    es.onmessage = (e) => {
+      try {
+        setOrders(JSON.parse(e.data) as OrderView[]);
+      } catch {
+        /* ping/주석 라인 등은 무시 */
       }
-      if (active) setTimeout(tick, 2000);
     };
-    const t = setTimeout(tick, 2000);
-    return () => {
-      active = false;
-      clearTimeout(t);
-    };
-  }, [orders]);
+    es.onerror = () => setLive(false); // 끊기면 EventSource 가 자동 재연결한다
+    return () => es.close();
+  }, []);
 
   async function requestReturn(orderId: string) {
+    // 반품만 트리거 — 이후 갱신은 SSE 가 밀어 준다(수동 재조회 불필요).
     await fetch(`/api/orders/${orderId}/return`, { method: "POST" });
-    const res = await fetch("/api/orders"); // 즉시 한 번 당겨 UI 반영(이후 폴링이 이어감)
-    if (res.ok) setOrders(await res.json());
   }
 
   return (
@@ -57,7 +43,7 @@ export default function LiveOrders({ initial }: { initial: OrderView[] }) {
         {live && (
           <span className="flex items-center gap-1.5 text-emerald-400">
             <span className="h-2 w-2 animate-pulse rounded-full bg-emerald-400" />
-            실시간 갱신 중
+            실시간 연결됨 (SSE)
           </span>
         )}
       </div>

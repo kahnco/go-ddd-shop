@@ -18,6 +18,14 @@ func (r *statusRecorder) WriteHeader(code int) {
 	r.ResponseWriter.WriteHeader(code)
 }
 
+// Flush 를 위임해 SSE·스트리밍 응답이 이 래퍼를 거쳐도 즉시 흘러가게 한다.
+// (이게 없으면 SSE 핸들러의 w.(http.Flusher) 단언이 실패한다.)
+func (r *statusRecorder) Flush() {
+	if f, ok := r.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+
 // Middleware 는 모든 HTTP 요청에 대해 세 가지를 한다.
 //   - 상관 ID 를 확보(헤더에 있으면 잇고, 없으면 생성)해 ctx·응답 헤더에 넣는다
 //   - 처리 시간과 상태코드로 접근 로그를 남긴다
