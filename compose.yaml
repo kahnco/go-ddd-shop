@@ -62,6 +62,22 @@ services:
     depends_on:
       - nats
 
+  promotion:
+    build:
+      context: .
+      args:
+        SERVICE: promotion
+    environment:
+      NATS_URL: nats://nats:4222
+      NATS_JETSTREAM: "1"
+      OTEL_EXPORTER_OTLP_ENDPOINT: jaeger:4317
+      EVENT_ID: launch-2026
+      EVENT_TARGET: "1000" # 정확히 1000번째 응모자 당첨
+    ports:
+      - "8089:8080" # POST /events/{eventId}/entries
+    depends_on:
+      - nats
+
   payment:
     build:
       context: .
