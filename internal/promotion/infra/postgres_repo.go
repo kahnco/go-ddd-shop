@@ -2,6 +2,7 @@ package infra
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -53,6 +54,14 @@ CREATE TABLE IF NOT EXISTS promotion_entry (
     created_at TIMESTAMPTZ NOT NULL,
     PRIMARY KEY (event_id, user_id),
     UNIQUE (event_id, seq)
+);
+CREATE TABLE IF NOT EXISTS promotion_outbox (
+    id           BIGSERIAL PRIMARY KEY,
+    subject      TEXT NOT NULL,
+    event_name   TEXT NOT NULL,
+    payload      BYTEA NOT NULL,
+    dedup_id     TEXT UNIQUE,
+    published_at TIMESTAMPTZ
 );`
 	// 여러 replica 동시 기동 시 DDL 경합을 피하려 자문 잠금으로 직렬화(다른 컨텍스트와 같은 패턴).
 	conn, err := r.pool.Acquire(ctx)
@@ -171,11 +180,86 @@ func (r *PostgresRepo) Enter(ctx context.Context, eventID, userID string, now ti
 			userID, eventID); err != nil {
 			return app.Result{}, err
 		}
+		// 당첨 이벤트를 아웃박스에 같은 트랜잭션으로 적재한다 → "커밋됐으면 반드시 발행".
+		// dedup_id 유니크라, 어떤 이유로 두 번 실행돼도 아웃박스엔 한 건만 남는다.
+		evt := domain.WinnerDetermined{EventID: eventID, UserID: userID, Seq: next, DeterminedAt: now}
+		payload, err := json.Marshal(evt)
+		if err != nil {
+			return app.Result{}, err
+		}
+		if _, err := tx.Exec(ctx,
+			`INSERT INTO promotion_outbox (subject, event_name, payload, dedup_id)
+			 VALUES ($1,$2,$3,$4) ON CONFLICT (dedup_id) DO NOTHING`,
+			"promotion."+evt.EventName(), evt.EventName(), payload, evt.DedupID()); err != nil {
+			return app.Result{}, err
+		}
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return app.Result{}, err
 	}
 	return app.Result{Seq: next, Winner: winner, Already: false}, nil
+}
+
+// EntryOf 는 사용자의 응모 상태를 조회한다(큐 모드의 상태 확인용).
+func (r *PostgresRepo) EntryOf(ctx context.Context, eventID, userID string) (app.Result, bool, error) {
+	var seq, target int
+	err := r.pool.QueryRow(ctx,
+		`SELECT e.seq, ev.target_seq
+		   FROM promotion_entry e JOIN promotion_event ev ON ev.event_id = e.event_id
+		  WHERE e.event_id=$1 AND e.user_id=$2`, eventID, userID).Scan(&seq, &target)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return app.Result{}, false, nil
+	}
+	if err != nil {
+		return app.Result{}, false, err
+	}
+	return app.Result{Seq: seq, Winner: seq == target, Already: true}, true, nil
+}
+
+// DispatchOutbox 는 미발행 아웃박스 행을 잠그고(SKIP LOCKED) publish 한 뒤 발행 표시한다.
+// 잠금·발행·표시가 한 트랜잭션이라, 여러 릴레이가 병렬로 돌아도 같은 행을 두 번 잡지 않는다.
+func (r *PostgresRepo) DispatchOutbox(ctx context.Context, publish func(OutboxMessage) error) (int, error) {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback(ctx)
+
+	rows, err := tx.Query(ctx, `
+		SELECT id, subject, event_name, payload, COALESCE(dedup_id, '')
+		FROM promotion_outbox WHERE published_at IS NULL
+		ORDER BY id LIMIT 100
+		FOR UPDATE SKIP LOCKED`)
+	if err != nil {
+		return 0, err
+	}
+	var msgs []OutboxMessage
+	for rows.Next() {
+		var m OutboxMessage
+		if err := rows.Scan(&m.ID, &m.Subject, &m.EventName, &m.Payload, &m.DedupID); err != nil {
+			rows.Close()
+			return 0, err
+		}
+		msgs = append(msgs, m)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return 0, err
+	}
+
+	var published []int64
+	for _, m := range msgs {
+		if err := publish(m); err != nil {
+			break // 실패하면 멈추고, 커밋 안 된 나머지는 다음 주기에 다시 잠근다
+		}
+		published = append(published, m.ID)
+	}
+	if len(published) > 0 {
+		if _, err := tx.Exec(ctx, `UPDATE promotion_outbox SET published_at = now() WHERE id = ANY($1)`, published); err != nil {
+			return 0, err
+		}
+	}
+	return len(published), tx.Commit(ctx)
 }
 
 // WinnerOf 는 확정된 당첨자를 조회한다.
@@ -195,4 +279,7 @@ func (r *PostgresRepo) WinnerOf(ctx context.Context, eventID string) (string, bo
 	return *w, true, nil
 }
 
-var _ app.Repository = (*PostgresRepo)(nil)
+var (
+	_ app.Repository = (*PostgresRepo)(nil)
+	_ OutboxStore    = (*PostgresRepo)(nil)
+)

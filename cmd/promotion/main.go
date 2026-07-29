@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/kahnco/go-ddd-shop/internal/platform/eventbus"
+	"github.com/kahnco/go-ddd-shop/internal/platform/ratelimit"
 	"github.com/kahnco/go-ddd-shop/internal/platform/telemetry"
 	"github.com/kahnco/go-ddd-shop/internal/promotion/app"
 	"github.com/kahnco/go-ddd-shop/internal/promotion/domain"
@@ -17,10 +18,15 @@ import (
 )
 
 // promotion 서비스: "정확히 N번째로 응모한 사람이 당첨"인 이벤트를 처리한다.
-// 응모 입구는 HTTP(POST /events/{eventId}/entries)이고, 당첨이 확정되면
-// promotion.winner_determined 를 발행한다(다운스트림이 상금 지급·알림).
+//
+//   - 순번 배정: 빈틈없는(gapless) 카운터(인메모리 뮤텍스 / Postgres 행 잠금)
+//   - 당첨 통지: 아웃박스에 같은 트랜잭션으로 적재 → 릴레이가 발행(정확히-한번 지향)
+//   - 접수: 동기(즉시 순번) 또는 큐 완충(202 접수 → 순차 소비자가 배정) — INGEST 로 선택
+//   - 어뷰징 방어: 사용자/IP 별 토큰 버킷 레이트 리밋(429)
 func main() {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
 	shutdown, _ := telemetry.InitTracer(context.Background(), "promotion")
 	defer func() { _ = shutdown(context.Background()) }()
@@ -33,9 +39,10 @@ func main() {
 	}
 	defer bus.Close()
 
-	// 저장소 선택. DATABASE_URL 이 있으면 PostgreSQL(행 잠금으로 여러 replica 가 순번을
-	// 빈틈없이 공유), 없으면 인메모리(뮤텍스로 단일 인스턴스 동시성은 안전).
+	// 저장소 선택. DATABASE_URL 이 있으면 PostgreSQL(행 잠금·여러 replica·아웃박스),
+	// 없으면 인메모리(단일 인스턴스).
 	var repo app.Repository
+	var store infra.OutboxStore
 	if dsn := os.Getenv("DATABASE_URL"); dsn != "" {
 		pg, err := infra.NewPostgresRepo(context.Background(), dsn)
 		if err != nil {
@@ -43,15 +50,15 @@ func main() {
 			os.Exit(1)
 		}
 		defer pg.Close()
-		repo = pg
-		logger.Info("응모 저장소 = PostgreSQL(다중 replica 안전, gapless)")
+		repo, store = pg, pg
+		logger.Info("응모 저장소 = PostgreSQL(다중 replica·gapless·아웃박스)")
 	} else {
-		repo = infra.NewMemoryRepo()
+		mem := infra.NewMemoryRepo()
+		repo, store = mem, mem
 		logger.Info("응모 저장소 = 인메모리(단일 인스턴스)")
 	}
 
-	publisher := infra.NewNatsEventPublisher(bus, "promotion")
-	svc := app.NewService(repo, publisher)
+	svc := app.NewService(repo)
 
 	// 데모 이벤트: 시작 즉시, 정확히 TARGET 번째 당첨.
 	target := atoiOr(os.Getenv("EVENT_TARGET"), 1000)
@@ -64,8 +71,42 @@ func main() {
 	}
 	logger.Info("프로모션 이벤트 준비", "event", eventID, "target", target)
 
+	// 아웃박스 릴레이 — 당첨 이벤트를 브로커로 흘린다(커밋됐으면 반드시 발행).
+	relay := infra.NewOutboxRelay(store, bus, 500*time.Millisecond, logger)
+	go relay.Run(ctx)
+
+	// 레이트 리밋 — 사용자(X-User-Id) 우선, 없으면 IP. 버스트/속도는 환경변수로.
+	rl := ratelimit.New(atoiOr(os.Getenv("RATE_BURST"), 5), float64(atoiOr(os.Getenv("RATE_PER_SEC"), 2)))
+	rateKey := func(r *http.Request) string {
+		if u := r.Header.Get("X-User-Id"); u != "" {
+			return u
+		}
+		return ratelimit.ClientIP(r)
+	}
+
 	mux := http.NewServeMux()
-	infra.NewEntryHandler(svc).Register(mux) // POST /events/{eventId}/entries
+
+	// 접수 모드 — 동기(기본) 또는 큐 완충.
+	entryMux := http.NewServeMux()
+	if envOr("INGEST", "sync") == "queue" {
+		queue := infra.NewNatsEntryQueue(bus)
+		infra.NewQueuedEntryHandler(queue).Register(entryMux)
+		consumer := infra.NewEntryRequestedConsumer(svc, logger)
+		if err := bus.Subscribe(infra.EntryRequestedSubject, "promotion", consumer.Handle); err != nil {
+			logger.Error("entry_requested 구독 실패", "err", err)
+			os.Exit(1)
+		}
+		logger.Info("접수 모드 = 큐 완충(202 접수 → 순차 배정)")
+	} else {
+		infra.NewEntryHandler(svc).Register(entryMux)
+		logger.Info("접수 모드 = 동기(즉시 순번)")
+	}
+	// POST 응모에만 레이트 리밋을 씌운다.
+	mux.Handle("POST /events/{eventId}/entries", rl.Middleware(rateKey)(entryMux))
+
+	// 상태 조회(큐 모드에서 결과 확인) — 레이트 리밋 없이.
+	infra.NewStatusHandler(svc).Register(mux)
+
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
@@ -74,7 +115,7 @@ func main() {
 
 	httpAddr := envOr("HTTP_ADDR", ":8080")
 	go func() {
-		logger.Info("promotion 서비스 시작 — POST /events/{eventId}/entries", "addr", httpAddr)
+		logger.Info("promotion 서비스 시작", "addr", httpAddr)
 		if err := http.ListenAndServe(httpAddr, mux); err != nil {
 			logger.Error("HTTP 서버 종료", "err", err)
 		}

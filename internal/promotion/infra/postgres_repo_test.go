@@ -126,6 +126,40 @@ func TestPostgres_시작전응모는_순번을_소비하지않는다(t *testing.
 	}
 }
 
+func TestPostgres_당첨이_아웃박스에_적재되고_한번_디스패치된다(t *testing.T) {
+	ctx := context.Background()
+	repo, err := infra.NewPostgresRepo(ctx, startPostgres(t))
+	if err != nil {
+		t.Fatalf("NewPostgresRepo: %v", err)
+	}
+	defer repo.Close()
+
+	if err := repo.SeedEvent(ctx, domain.Event{ID: "ev", TargetSeq: 2, StartsAt: time.Unix(0, 0)}); err != nil {
+		t.Fatalf("SeedEvent: %v", err)
+	}
+	_, _ = repo.Enter(ctx, "ev", "alice", time.Now()) // seq 1
+	r, _ := repo.Enter(ctx, "ev", "bob", time.Now())   // seq 2 = 당첨
+	if !r.Winner {
+		t.Fatalf("bob 는 당첨이어야")
+	}
+
+	var published []infra.OutboxMessage
+	n, err := repo.DispatchOutbox(ctx, func(m infra.OutboxMessage) error {
+		published = append(published, m)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("DispatchOutbox: %v", err)
+	}
+	if n != 1 || len(published) != 1 || published[0].DedupID != "promotion-winner:ev" {
+		t.Fatalf("당첨 이벤트 1건이 발행돼야: n=%d, %+v", n, published)
+	}
+	// 재디스패치 → 이미 발행 표시라 0건
+	if n2, _ := repo.DispatchOutbox(ctx, func(infra.OutboxMessage) error { return nil }); n2 != 0 {
+		t.Fatalf("이미 발행한 건 다시 발행하지 않아야: %d", n2)
+	}
+}
+
 func TestPostgres_같은사용자_재응모는_멱등(t *testing.T) {
 	ctx := context.Background()
 	repo, err := infra.NewPostgresRepo(ctx, startPostgres(t))

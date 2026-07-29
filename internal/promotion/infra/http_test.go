@@ -22,7 +22,7 @@ func newHTTP(t *testing.T, target int, startsAt time.Time) http.Handler {
 		t.Fatalf("SeedEvent: %v", err)
 	}
 	mux := http.NewServeMux()
-	infra.NewEntryHandler(app.NewService(repo, nil)).Register(mux)
+	infra.NewEntryHandler(app.NewService(repo)).Register(mux)
 	return mux
 }
 

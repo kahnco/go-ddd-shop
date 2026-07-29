@@ -21,7 +21,7 @@ func Test동시응모_순번은_빈틈없고_당첨은_정확히_하나(t *testi
 
 	repo := infra.NewMemoryRepo()
 	seed(t, repo, "ev", target)
-	svc := app.NewService(repo, nil)
+	svc := app.NewService(repo)
 
 	results := make([]app.Result, N)
 	var wg sync.WaitGroup
@@ -76,7 +76,7 @@ func Test동시응모_순번은_빈틈없고_당첨은_정확히_하나(t *testi
 func Test같은사용자_동시재응모는_순번을_하나만_쓴다(t *testing.T) {
 	repo := infra.NewMemoryRepo()
 	seed(t, repo, "ev", 1000)
-	svc := app.NewService(repo, nil)
+	svc := app.NewService(repo)
 
 	const tries = 500
 	seqs := make(map[int]struct{})
