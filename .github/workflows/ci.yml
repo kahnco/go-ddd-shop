@@ -41,3 +41,36 @@ jobs:
         run: docker build --build-arg SERVICE=ordering -t ordering:ci .
       - name: inventory 이미지 빌드
         run: docker build --build-arg SERVICE=inventory -t inventory:ci .
+      - name: promotion 이미지 빌드
+        run: docker build --build-arg SERVICE=promotion -t promotion:ci .
+
+  # 부하 게이트 — promotion 접수 경로의 성능 회귀·오류를 자동으로 잡는다.
+  # sync 모드(Postgres 행 잠금)로 실제 순번 배정 경로를 재고, p99·오류 임계값을 넘으면 실패.
+  loadtest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+          cache-dependency-path: go.sum
+
+      - name: 의존성 기동(nats, postgres)
+        run: |
+          docker run -d --name nats -p 4222:4222 nats:2-alpine
+          docker run -d --name pg -e POSTGRES_PASSWORD=secret -e POSTGRES_USER=shop \
+            -e POSTGRES_DB=shop -p 5432:5432 postgres:16-alpine
+          for i in $(seq 1 30); do docker exec pg pg_isready -U shop && break; sleep 1; done
+
+      - name: promotion 기동(sync)
+        run: |
+          go build -o /tmp/promo ./cmd/promotion
+          DATABASE_URL="postgres://shop:secret@localhost:5432/shop?sslmode=disable" \
+          NATS_URL="nats://localhost:4222" INGEST=sync EVENT_ID=ci EVENT_TARGET=100000000 \
+          RATE_BURST=100000000 RATE_PER_SEC=100000000 HTTP_ADDR=:8080 /tmp/promo &
+          for i in $(seq 1 30); do curl -sf http://localhost:8080/healthz && break; sleep 0.5; done
+
+      - name: 부하 테스트(p99·오류 게이트)
+        run: |
+          go run ./cmd/promotion-loadtest -url http://localhost:8080 -event ci \
+            -label "CI sync" -c 50 -n 3000 -max-p99-ms 800 -max-err 0

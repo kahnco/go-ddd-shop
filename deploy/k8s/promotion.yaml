@@ -1,0 +1,56 @@
+# promotion 서비스 — "정확히 N번째로 응모한 사람이 당첨"인 이벤트.
+# 여러 replica 로 굴린다: 순번은 Postgres 행 잠금(gapless), 레이트 리밋·종료 배치는 Redis,
+# SSE 통지는 NATS 팬아웃으로 인스턴스 경계를 넘는다.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: promotion
+  namespace: shop
+spec:
+  replicas: 2 # 다중 인스턴스 — 상태는 Postgres/Redis/NATS 로 공유하므로 안전
+  selector:
+    matchLabels:
+      app: promotion
+  template:
+    metadata:
+      labels:
+        app: promotion
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/metrics"
+    spec:
+      containers:
+        - name: promotion
+          image: go-ddd-shop/promotion:part-25
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+          env:
+            - { name: INGEST, value: "queue" } # 202 접수 → 순차 배정 → SSE 팬아웃
+            - { name: EVENT_ID, value: "launch-2026" }
+            - { name: EVENT_TARGET, value: "1000" } # 정확히 1000번째 당첨
+          envFrom:
+            - configMapRef:
+                name: shop-config # NATS_URL, NATS_JETSTREAM, REDIS_URL, OTEL, …
+            - secretRef:
+                name: ordering-secret # DATABASE_URL(같은 Postgres 공유)
+          livenessProbe:
+            httpGet: { path: /healthz, port: 8080 }
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests: { cpu: "50m", memory: "32Mi" }
+            limits: { cpu: "250m", memory: "128Mi" }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: promotion
+  namespace: shop
+spec:
+  selector:
+    app: promotion
+  ports:
+    - port: 80
+      targetPort: 8080

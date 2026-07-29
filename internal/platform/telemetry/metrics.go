@@ -49,6 +49,35 @@ var (
 		Name: "dlq_messages_total",
 		Help: "죽은 편지함(DLQ)으로 보낸 이벤트 수",
 	}, []string{"subject"})
+
+	// 프로모션(정확히 N번째 당첨) 비즈니스 메트릭.
+	promotionEntries = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "promotion_entries_total",
+		Help: "처리한 응모 수(결과별: assigned/already/rejected)",
+	}, []string{"event", "result"})
+
+	promotionWinners = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "promotion_winners_total",
+		Help: "확정된 당첨 수",
+	}, []string{"event"})
+
+	// 현재까지 배정된 최대 순번 — target(예: 1000)에 얼마나 가까운지 실시간으로 본다.
+	promotionSeq = promauto.NewGaugeVec(prometheus.GaugeOpts{
+		Name: "promotion_current_seq",
+		Help: "현재까지 배정된 최대 순번",
+	}, []string{"event"})
+
+	// 응모 처리 시간 — 카운터 잠금이 얼마나 무거운지(핫 로우 경합) 본다.
+	promotionEntryDuration = promauto.NewHistogram(prometheus.HistogramOpts{
+		Name:    "promotion_entry_duration_seconds",
+		Help:    "응모 처리(순번 배정) 시간(초)",
+		Buckets: []float64{.0005, .001, .0025, .005, .01, .025, .05, .1, .25, .5, 1},
+	})
+
+	promotionClosed = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "promotion_events_closed_total",
+		Help: "종료된 이벤트 수",
+	}, []string{"event"})
 )
 
 // RecordEventPublished/Consumed 는 이벤트 계측용. 발행·소비 어댑터가 호출한다.
@@ -71,6 +100,21 @@ func RecordOrderPlaced(channel string, amountWon int64) {
 
 // RecordDeadLettered 는 DLQ 유입을 기록한다(이벤트 버스가 호출).
 func RecordDeadLettered(subject string) { dlqMessages.WithLabelValues(subject).Inc() }
+
+// RecordPromotionEntry 는 응모 한 건의 결과·순번·처리시간을 기록한다(응모 유스케이스가 호출).
+func RecordPromotionEntry(event, result string, seq int, seconds float64) {
+	promotionEntries.WithLabelValues(event, result).Inc()
+	promotionEntryDuration.Observe(seconds)
+	if seq > 0 {
+		promotionSeq.WithLabelValues(event).Set(float64(seq))
+	}
+}
+
+// RecordPromotionWinner 는 당첨 확정을 기록한다.
+func RecordPromotionWinner(event string) { promotionWinners.WithLabelValues(event).Inc() }
+
+// RecordPromotionClosed 는 이벤트 종료를 기록한다.
+func RecordPromotionClosed(event string) { promotionClosed.WithLabelValues(event).Inc() }
 
 // MetricsHandler 는 /metrics 엔드포인트 핸들러(프로메테우스가 스크레이프한다).
 func MetricsHandler() http.Handler { return promhttp.Handler() }

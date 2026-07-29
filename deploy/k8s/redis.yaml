@@ -1,0 +1,41 @@
+# Redis — promotion 의 분산 레이트 리밋 + 종료 배치 분산락 공유 저장소.
+# 데모라 단일 인스턴스·무영속(레이트 버킷·잠금은 잃어도 재생성되는 상태).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis
+  namespace: shop
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redis
+  template:
+    metadata:
+      labels:
+        app: redis
+    spec:
+      containers:
+        - name: redis
+          image: redis:7-alpine
+          ports:
+            - containerPort: 6379
+          livenessProbe:
+            tcpSocket: { port: 6379 }
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests: { cpu: "25m", memory: "32Mi" }
+            limits: { cpu: "200m", memory: "128Mi" }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+  namespace: shop
+spec:
+  selector:
+    app: redis
+  ports:
+    - port: 6379
+      targetPort: 6379

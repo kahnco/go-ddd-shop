@@ -9,6 +9,7 @@ import (
 	"flag"
 	"fmt"
 	"net/http"
+	"os"
 	"sort"
 	"strconv"
 	"sync"
@@ -22,6 +23,8 @@ func main() {
 	label := flag.String("label", "", "결과 라벨(예: sync/queue)")
 	concurrency := flag.Int("c", 50, "동시 워커 수")
 	total := flag.Int("n", 5000, "총 요청 수")
+	maxP99 := flag.Float64("max-p99-ms", 0, "p99 상한(ms). 초과하면 실패 종료(0=검사 안 함)")
+	maxErr := flag.Int("max-err", 0, "허용 오류/5xx 수. 초과하면 실패 종료")
 	flag.Parse()
 
 	client := &http.Client{
@@ -59,7 +62,24 @@ func main() {
 	wg.Wait()
 	elapsed := time.Since(start)
 
-	report(*label, *total, elapsed, latencies, codes)
+	p99, bad := report(*label, *total, elapsed, latencies, codes)
+
+	// CI 게이트: 임계값을 넘으면 실패 종료.
+	failed := false
+	if *maxErr >= 0 && bad > *maxErr {
+		fmt.Printf("FAIL: 오류/5xx %d개 > 허용 %d개\n", bad, *maxErr)
+		failed = true
+	}
+	if *maxP99 > 0 && float64(p99.Milliseconds()) > *maxP99 {
+		fmt.Printf("FAIL: p99 %dms > 상한 %.0fms\n", p99.Milliseconds(), *maxP99)
+		failed = true
+	}
+	if failed {
+		os.Exit(1)
+	}
+	if *maxP99 > 0 || *maxErr > 0 {
+		fmt.Println("PASS: 임계값 통과")
+	}
 }
 
 func doPost(client *http.Client, endpoint, user string) int {
@@ -76,7 +96,8 @@ func doPost(client *http.Client, endpoint, user string) int {
 	return resp.StatusCode
 }
 
-func report(label string, n int, elapsed time.Duration, lat []time.Duration, codes []int) {
+// report 는 요약을 출력하고 (p99, 오류·5xx 수)를 돌려준다(CI 게이트용).
+func report(label string, n int, elapsed time.Duration, lat []time.Duration, codes []int) (time.Duration, int) {
 	sorted := append([]time.Duration(nil), lat...)
 	sort.Slice(sorted, func(i, j int) bool { return sorted[i] < sorted[j] })
 
@@ -111,6 +132,15 @@ func report(label string, n int, elapsed time.Duration, lat []time.Duration, cod
 		fmt.Printf("%s=%d ", name, cnt)
 	}
 	fmt.Println()
+
+	// 오류(연결 실패=0) + 5xx 합계.
+	bad := 0
+	for code, cnt := range byCode {
+		if code == 0 || code >= 500 {
+			bad += cnt
+		}
+	}
+	return pct(99), bad
 }
 
 func round(d time.Duration) time.Duration { return d.Round(100 * time.Microsecond) }

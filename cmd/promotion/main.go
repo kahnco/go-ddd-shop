@@ -153,9 +153,10 @@ func main() {
 	mux.Handle("GET /metrics", telemetry.MetricsHandler())
 
 	httpAddr := envOr("HTTP_ADDR", ":8080")
+	handler := telemetry.Middleware(logger, mux) // 상관 ID·접근 로그·http_requests_total·지연
 	go func() {
 		logger.Info("promotion 서비스 시작", "addr", httpAddr)
-		if err := http.ListenAndServe(httpAddr, mux); err != nil {
+		if err := http.ListenAndServe(httpAddr, handler); err != nil {
 			logger.Error("HTTP 서버 종료", "err", err)
 		}
 	}()

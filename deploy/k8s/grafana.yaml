@@ -119,6 +119,64 @@ data:
         }
       ]
     }
+  promotion.json: |
+    {
+      "uid": "promotion",
+      "title": "Promotion — 정확히 N번째 이벤트",
+      "schemaVersion": 39,
+      "editable": true,
+      "time": { "from": "now-30m", "to": "now" },
+      "refresh": "10s",
+      "panels": [
+        {
+          "type": "timeseries", "title": "응모율 (결과별) — assigned/already/rejected",
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "targets": [ { "refId": "A", "expr": "sum(rate(promotion_entries_total[1m])) by (result)", "legendFormat": "{{result}}" } ]
+        },
+        {
+          "type": "timeseries", "title": "현재 순번 (target 에 얼마나 가까운가)",
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "targets": [ { "refId": "A", "expr": "max(promotion_current_seq) by (event)", "legendFormat": "{{event}}" } ]
+        },
+        {
+          "type": "timeseries", "title": "응모 처리 지연 p50/p95/p99 (s) — 카운터 경합",
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+          "targets": [
+            { "refId": "A", "expr": "histogram_quantile(0.50, sum(rate(promotion_entry_duration_seconds_bucket[5m])) by (le))", "legendFormat": "p50" },
+            { "refId": "B", "expr": "histogram_quantile(0.95, sum(rate(promotion_entry_duration_seconds_bucket[5m])) by (le))", "legendFormat": "p95" },
+            { "refId": "C", "expr": "histogram_quantile(0.99, sum(rate(promotion_entry_duration_seconds_bucket[5m])) by (le))", "legendFormat": "p99" }
+          ]
+        },
+        {
+          "type": "timeseries", "title": "레이트 리밋 거절 (429/s) — 어뷰징 방어",
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "targets": [ { "refId": "A", "expr": "sum(rate(http_requests_total{app=\"promotion\",status=\"429\"}[1m])) or vector(0)", "legendFormat": "429/s" } ]
+        },
+        {
+          "type": "stat", "title": "누적 당첨",
+          "gridPos": { "h": 6, "w": 8, "x": 0, "y": 16 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "targets": [ { "refId": "A", "expr": "sum(promotion_winners_total)", "legendFormat": "당첨" } ]
+        },
+        {
+          "type": "stat", "title": "종료된 이벤트",
+          "gridPos": { "h": 6, "w": 8, "x": 8, "y": 16 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "targets": [ { "refId": "A", "expr": "sum(promotion_events_closed_total)", "legendFormat": "종료" } ]
+        },
+        {
+          "type": "stat", "title": "접수율 (req/s)",
+          "gridPos": { "h": 6, "w": 8, "x": 16, "y": 16 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "targets": [ { "refId": "A", "expr": "sum(rate(promotion_entries_total[1m]))", "legendFormat": "응모/s" } ]
+        }
+      ]
+    }
 ---
 apiVersion: apps/v1
 kind: Deployment

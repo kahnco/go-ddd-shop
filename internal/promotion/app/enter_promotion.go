@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/kahnco/go-ddd-shop/internal/platform/telemetry"
 	"github.com/kahnco/go-ddd-shop/internal/promotion/domain"
 )
 
@@ -31,7 +32,21 @@ func (s *Service) SeedEvent(ctx context.Context, e domain.Event) error {
 
 // Enter 는 사용자를 이벤트에 응모시킨다.
 func (s *Service) Enter(ctx context.Context, eventID, userID string) (Result, error) {
-	return s.repo.Enter(ctx, eventID, userID, s.clock())
+	t0 := time.Now()
+	res, err := s.repo.Enter(ctx, eventID, userID, s.clock())
+
+	result := "assigned"
+	switch {
+	case err != nil:
+		result = "rejected"
+	case res.Already:
+		result = "already"
+	}
+	telemetry.RecordPromotionEntry(eventID, result, res.Seq, time.Since(t0).Seconds())
+	if err == nil && res.Winner && !res.Already {
+		telemetry.RecordPromotionWinner(eventID)
+	}
+	return res, err
 }
 
 // EntryOf 는 사용자의 응모 상태를 조회한다(큐 모드).
@@ -41,5 +56,9 @@ func (s *Service) EntryOf(ctx context.Context, eventID, userID string) (Result, 
 
 // MarkClosed 는 당첨이 확정된 이벤트를 종료 처리한다(멱등).
 func (s *Service) MarkClosed(ctx context.Context, eventID string) (bool, error) {
-	return s.repo.MarkClosed(ctx, eventID)
+	closed, err := s.repo.MarkClosed(ctx, eventID)
+	if closed {
+		telemetry.RecordPromotionClosed(eventID)
+	}
+	return closed, err
 }
