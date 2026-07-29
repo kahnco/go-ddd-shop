@@ -2,6 +2,7 @@ package infra
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"time"
 
@@ -9,7 +10,15 @@ import (
 	"github.com/kahnco/go-ddd-shop/internal/platform/idempotency"
 	"github.com/kahnco/go-ddd-shop/internal/platform/telemetry"
 	"github.com/kahnco/go-ddd-shop/internal/promotion/app"
+	"github.com/kahnco/go-ddd-shop/internal/promotion/domain"
 )
+
+// isTerminal 은 재시도해도 결과가 바뀌지 않는 영구 거부인지 판단한다.
+func isTerminal(err error) bool {
+	return errors.Is(err, domain.ErrClosed) ||
+		errors.Is(err, domain.ErrNotStarted) ||
+		errors.Is(err, domain.ErrEventNotFound)
+}
 
 // EntryRequestedSubject — 접수된 응모 요청이 흐르는 주제.
 const EntryRequestedSubject = "promotion.entry_requested"
@@ -52,19 +61,19 @@ var _ app.EntryQueue = (*NatsEntryQueue)(nil)
 // 단일 구독(구독당 goroutine 하나)이라 접수 순서대로 처리된다.
 // request_id 로 중복을 거르지만, 순번 배정 자체도 (event,user) 로 멱등이라 이중 안전망이다.
 type EntryRequestedConsumer struct {
-	svc   *app.Service
-	guard *idempotency.Guard
-	hub   *Hub // 선택 — 있으면 배정 결과를 SSE 로 push
-	log   *slog.Logger
+	svc      *app.Service
+	guard    *idempotency.Guard
+	notifier EntryNotifier // 선택 — 있으면 배정 결과를 통지(로컬 허브 또는 브로드캐스트)
+	log      *slog.Logger
 }
 
 func NewEntryRequestedConsumer(svc *app.Service, log *slog.Logger) *EntryRequestedConsumer {
 	return &EntryRequestedConsumer{svc: svc, guard: idempotency.NewGuard(), log: log}
 }
 
-// WithHub 는 처리 결과를 실시간으로 밀어 줄 SSE 허브를 연결한다.
-func (c *EntryRequestedConsumer) WithHub(h *Hub) *EntryRequestedConsumer {
-	c.hub = h
+// WithNotifier 는 처리 결과를 실시간으로 알릴 통지자를 연결한다(SSE 허브·브로드캐스트).
+func (c *EntryRequestedConsumer) WithNotifier(n EntryNotifier) *EntryRequestedConsumer {
+	c.notifier = n
 	return c
 }
 
@@ -78,11 +87,17 @@ func (c *EntryRequestedConsumer) Handle(env eventbus.Envelope) error {
 	return c.guard.Do(env.ID, func() error {
 		res, err := c.svc.Enter(ctx, p.EventID, p.UserID)
 		if err != nil {
-			c.log.Error("응모 처리 실패", "event", p.EventID, "user", p.UserID, "err", err)
+			// 종료·시작전·없는 이벤트는 "영구 거부"다 — 재시도해도 결과가 같으니
+			// 로그만 남기고 ack(드롭)한다. 재시도·DLQ 는 일시적 오류(DB 장애 등)에만.
+			if isTerminal(err) {
+				c.log.Warn("응모 영구 거부(드롭)", "event", p.EventID, "user", p.UserID, "reason", err)
+				return nil
+			}
+			c.log.Error("응모 처리 실패(재시도)", "event", p.EventID, "user", p.UserID, "err", err)
 			return err
 		}
-		if c.hub != nil {
-			c.hub.NotifyEntry(p.EventID, p.UserID, res) // 배정 결과를 사용자 스트림으로 push
+		if c.notifier != nil {
+			c.notifier.NotifyEntry(p.EventID, p.UserID, res) // 배정 결과 통지(로컬/브로드캐스트)
 		}
 		if res.Winner && !res.Already {
 			c.log.Info("당첨 확정", "event", p.EventID, "user", p.UserID, "seq", res.Seq)

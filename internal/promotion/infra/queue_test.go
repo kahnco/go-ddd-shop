@@ -54,6 +54,24 @@ func TestConsumer_요청을_처리해_순번을_배정한다_멱등(t *testing.T
 	}
 }
 
+func TestConsumer_영구거부는_재시도없이_드롭한다(t *testing.T) {
+	repo := infra.NewMemoryRepo()
+	// 아직 시작 전 이벤트 → Enter 는 ErrNotStarted(영구 거부)
+	_ = repo.SeedEvent(context.Background(), domain.Event{
+		ID: "ev", TargetSeq: 1000, StartsAt: time.Now().Add(time.Hour),
+	})
+	consumer := infra.NewEntryRequestedConsumer(app.NewService(repo), discardLogger())
+
+	// 영구 거부는 에러가 아니라 nil 을 돌려줘야(ack·드롭 → 재전송/DLQ 안 감)
+	if err := consumer.Handle(requestEnvelope("r1", "ev", "alice")); err != nil {
+		t.Fatalf("영구 거부는 드롭(nil)해야: %v", err)
+	}
+	// 기록도 남지 않는다
+	if _, found, _ := app.NewService(repo).EntryOf(context.Background(), "ev", "alice"); found {
+		t.Fatalf("영구 거부된 응모는 기록되면 안 됨")
+	}
+}
+
 // 접수 큐를 흉내내는 가짜 — 호출을 기록한다.
 type fakeQueue struct {
 	mu    sync.Mutex

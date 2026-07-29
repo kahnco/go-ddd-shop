@@ -160,6 +160,49 @@ func TestPostgres_당첨이_아웃박스에_적재되고_한번_디스패치된�
 	}
 }
 
+func TestPostgres_MarkClosed_당첨후_종료하고_이후응모_거부(t *testing.T) {
+	ctx := context.Background()
+	repo, err := infra.NewPostgresRepo(ctx, startPostgres(t))
+	if err != nil {
+		t.Fatalf("NewPostgresRepo: %v", err)
+	}
+	defer repo.Close()
+
+	if err := repo.SeedEvent(ctx, domain.Event{ID: "ev", TargetSeq: 1, StartsAt: time.Unix(0, 0)}); err != nil {
+		t.Fatalf("SeedEvent: %v", err)
+	}
+	if r, _ := repo.Enter(ctx, "ev", "alice", time.Now()); !r.Winner {
+		t.Fatalf("alice 당첨이어야")
+	}
+
+	// 종료 — 처음이면 true, 두 번째는 false(멱등)
+	if closed, err := repo.MarkClosed(ctx, "ev"); err != nil || !closed {
+		t.Fatalf("종료는 true 여야: closed=%v err=%v", closed, err)
+	}
+	if closed, _ := repo.MarkClosed(ctx, "ev"); closed {
+		t.Fatalf("이미 종료된 이벤트는 다시 종료되면 안 됨")
+	}
+	// 종료 후 응모 거부
+	if _, err := repo.Enter(ctx, "ev", "bob", time.Now()); err != domain.ErrClosed {
+		t.Fatalf("종료 후 응모는 ErrClosed 여야: %v", err)
+	}
+	// 아웃박스에 winner + closed 2건
+	var dedups []string
+	_, _ = repo.DispatchOutbox(ctx, func(m infra.OutboxMessage) error {
+		dedups = append(dedups, m.DedupID)
+		return nil
+	})
+	hasClosed := false
+	for _, d := range dedups {
+		if d == "promotion-closed:ev" {
+			hasClosed = true
+		}
+	}
+	if !hasClosed {
+		t.Fatalf("아웃박스에 event_closed 가 있어야: %v", dedups)
+	}
+}
+
 func TestPostgres_같은사용자_재응모는_멱등(t *testing.T) {
 	ctx := context.Background()
 	repo, err := infra.NewPostgresRepo(ctx, startPostgres(t))

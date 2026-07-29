@@ -21,6 +21,10 @@ var shopStreams = []struct {
 	{"SHIPPING", []string{"shipping.>"}},
 	{"CATALOG", []string{"catalog.>"}},
 	{"CUSTOMER", []string{"customer.>"}},
+	// promotion 은 영속이 필요한 주제만 스트림에 담는다 — 접수(entry_requested)는 재시작에도
+	// 잃으면 안 되고, 당첨(winner_determined)은 아웃박스가 재전송한다.
+	// promotion.notify.* (SSE 실시간 팬아웃)는 일부러 제외한다 — 놓쳐도 되는 신호라 영속 불필요.
+	{"PROMOTION", []string{"promotion.entry_requested", "promotion.winner_determined"}},
 	// 죽은 편지함(dead-letter). 재시도를 다 쓰고도 처리 못 한 독성 메시지가 여기 모인다.
 	// 소비자를 막지 않으면서, 잃지도 않고, 나중에 사람이 보거나 재투입할 수 있게 보관한다.
 	{"DLQ", []string{"dlq.>"}},

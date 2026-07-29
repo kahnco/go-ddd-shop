@@ -123,6 +123,8 @@ func handleEnterErr(w http.ResponseWriter, err error) bool {
 		writeErr(w, http.StatusNotFound, "event_not_found")
 	case errors.Is(err, domain.ErrNotStarted):
 		writeErr(w, http.StatusTooEarly, "not_started") // 425 — 아직 시작 전
+	case errors.Is(err, domain.ErrClosed):
+		writeErr(w, http.StatusConflict, "closed") // 409 — 이미 종료
 	case err != nil:
 		writeErr(w, http.StatusInternalServerError, "internal")
 	default:

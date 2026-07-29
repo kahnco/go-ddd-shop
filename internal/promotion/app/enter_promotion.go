@@ -38,3 +38,8 @@ func (s *Service) Enter(ctx context.Context, eventID, userID string) (Result, er
 func (s *Service) EntryOf(ctx context.Context, eventID, userID string) (Result, bool, error) {
 	return s.repo.EntryOf(ctx, eventID, userID)
 }
+
+// MarkClosed 는 당첨이 확정된 이벤트를 종료 처리한다(멱등).
+func (s *Service) MarkClosed(ctx context.Context, eventID string) (bool, error) {
+	return s.repo.MarkClosed(ctx, eventID)
+}

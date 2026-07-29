@@ -7,4 +7,6 @@ var (
 	ErrEventNotFound = errors.New("promotion: 이벤트를 찾을 수 없음")
 	// ErrNotStarted — 아직 시작 시각(StartsAt) 이전이라 응모 무효.
 	ErrNotStarted = errors.New("promotion: 아직 시작 전인 이벤트")
+	// ErrClosed — 이미 종료된 이벤트라 더는 응모를 받지 않는다.
+	ErrClosed = errors.New("promotion: 이미 종료된 이벤트")
 )

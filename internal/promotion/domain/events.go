@@ -25,3 +25,17 @@ func (WinnerDetermined) EventName() string { return "winner_determined" }
 
 // DedupID 는 다운스트림 멱등 처리를 위한 결정적 식별자다.
 func (w WinnerDetermined) DedupID() string { return "promotion-winner:" + w.EventID }
+
+// EventClosed — 이벤트가 종료됐다(당첨 확정 후 종료 배치가 발행).
+// 다운스트림이 낙첨자 알림·정산·집계 마감 등을 이어받을 수 있다.
+type EventClosed struct {
+	EventID      string    `json:"event_id"`
+	WinnerUserID string    `json:"winner_user_id"`
+	TotalEntries int       `json:"total_entries"`
+	ClosedAt     time.Time `json:"closed_at"`
+}
+
+func (EventClosed) EventName() string { return "event_closed" }
+
+// DedupID 는 이벤트당 종료가 하나뿐이므로 event_id 만으로 결정적이다.
+func (e EventClosed) DedupID() string { return "promotion-closed:" + e.EventID }

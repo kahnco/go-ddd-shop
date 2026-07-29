@@ -85,6 +85,35 @@ func (b *Bus) Publish(subject string, env Envelope) error {
 	return b.nc.Flush()
 }
 
+// Broadcast 는 봉투를 core NATS 로 발행한다(JetStream 모드여도 스트림에 저장하지 않는다).
+// 모든 인스턴스가 각자 받아야 하는 실시간 신호(예: SSE 팬아웃)처럼, 영속이 필요 없고
+// 놓쳐도 되는 알림에 쓴다.
+func (b *Bus) Broadcast(subject string, env Envelope) error {
+	raw, err := json.Marshal(env)
+	if err != nil {
+		return err
+	}
+	if err := b.nc.Publish(subject, raw); err != nil {
+		return err
+	}
+	return b.nc.Flush()
+}
+
+// SubscribeBroadcast 는 큐 그룹 없이 구독한다 → 여러 인스턴스가 같은 메시지를 각자 받는다(fanout).
+// 큐 그룹 구독(Subscribe)이 "여럿 중 하나"에게만 주는 것과 반대다. 영속·ack 없음.
+func (b *Bus) SubscribeBroadcast(subject string, handler Handler) error {
+	_, err := b.nc.Subscribe(subject, func(m *nats.Msg) {
+		var env Envelope
+		if json.Unmarshal(m.Data, &env) == nil {
+			_ = handler(env)
+		}
+	})
+	if err != nil {
+		return err
+	}
+	return b.nc.Flush()
+}
+
 // Handler 는 봉투 하나를 처리하는 콜백.
 type Handler func(Envelope) error
 

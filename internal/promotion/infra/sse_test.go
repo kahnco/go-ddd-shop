@@ -18,7 +18,7 @@ func TestSSE_소비자가_처리하면_구독자에게_실시간_push(t *testing
 	_ = repo.SeedEvent(context.Background(), domain.Event{ID: "ev", TargetSeq: 1, StartsAt: time.Unix(0, 0)})
 	svc := app.NewService(repo)
 	hub := infra.NewHub()
-	consumer := infra.NewEntryRequestedConsumer(svc, discardLogger()).WithHub(hub)
+	consumer := infra.NewEntryRequestedConsumer(svc, discardLogger()).WithNotifier(hub)
 
 	ch := hub.Subscribe("ev|alice") // Hub 키 = eventID|userID
 	defer hub.Unsubscribe("ev|alice", ch)

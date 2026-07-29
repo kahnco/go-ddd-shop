@@ -11,6 +11,7 @@ import (
 
 	"github.com/redis/go-redis/v9"
 
+	"github.com/kahnco/go-ddd-shop/internal/platform/distlock"
 	"github.com/kahnco/go-ddd-shop/internal/platform/eventbus"
 	"github.com/kahnco/go-ddd-shop/internal/platform/ratelimit"
 	"github.com/kahnco/go-ddd-shop/internal/platform/telemetry"
@@ -87,19 +88,33 @@ func main() {
 		}
 		return ratelimit.ClientIP(r)
 	}
-	var rateMiddleware func(http.Handler) http.Handler
+	// Redis(있으면) — 레이트 리밋 + 분산 잠금에 공유한다.
+	var rdb *redis.Client
 	if redisURL := os.Getenv("REDIS_URL"); redisURL != "" {
 		opt, err := redis.ParseURL(redisURL)
 		if err != nil {
 			logger.Error("REDIS_URL 파싱 실패", "err", err)
 			os.Exit(1)
 		}
-		rateMiddleware = ratelimit.NewRedis(redis.NewClient(opt), burst, perSec).Middleware(rateKey)
-		logger.Info("레이트 리밋 = Redis 분산", "url", redisURL)
+		rdb = redis.NewClient(opt)
+		defer func() { _ = rdb.Close() }()
+	}
+
+	var rateMiddleware func(http.Handler) http.Handler
+	if rdb != nil {
+		rateMiddleware = ratelimit.NewRedis(rdb, burst, perSec).Middleware(rateKey)
+		logger.Info("레이트 리밋 = Redis 분산")
 	} else {
 		rateMiddleware = ratelimit.New(burst, perSec).Middleware(rateKey)
 		logger.Info("레이트 리밋 = 인메모리(단일 인스턴스)")
 	}
+
+	// 종료 배치 — 당첨이 확정되면 이벤트를 한 인스턴스만 종료 처리한다(분산 잠금).
+	var lock infra.Locker = distlock.Nop{}
+	if rdb != nil {
+		lock = distlock.New(rdb, 30*time.Second)
+	}
+	go infra.NewCloser(svc, lock, 5*time.Second, logger).Watch(eventID).Run(ctx)
 
 	mux := http.NewServeMux()
 
@@ -107,14 +122,20 @@ func main() {
 	entryMux := http.NewServeMux()
 	if envOr("INGEST", "sync") == "queue" {
 		hub := infra.NewHub()
+		// 팬아웃: 소비자는 결과를 브로드캐스트하고, 인스턴스마다 브리지가 받아 로컬 허브로 push.
+		// → SSE 가 어느 인스턴스에 붙어 있든 결과가 닿는다.
+		if err := infra.NewNotifyBridge(bus, hub, logger).Start(); err != nil {
+			logger.Error("통지 브리지 시작 실패", "err", err)
+			os.Exit(1)
+		}
 		infra.NewQueuedEntryHandler(infra.NewNatsEntryQueue(bus)).Register(entryMux)
-		consumer := infra.NewEntryRequestedConsumer(svc, logger).WithHub(hub)
+		consumer := infra.NewEntryRequestedConsumer(svc, logger).WithNotifier(infra.NewBroadcastNotifier(bus))
 		if err := bus.Subscribe(infra.EntryRequestedSubject, "promotion", consumer.Handle); err != nil {
 			logger.Error("entry_requested 구독 실패", "err", err)
 			os.Exit(1)
 		}
 		infra.NewSSEHandler(svc, hub).Register(mux) // GET …/entries/me/stream — 결과 실시간 push
-		logger.Info("접수 모드 = 큐 완충(202 접수 → 순차 배정 → SSE push)")
+		logger.Info("접수 모드 = 큐 완충(202 접수 → 순차 배정 → SSE 팬아웃)")
 	} else {
 		infra.NewEntryHandler(svc).Register(entryMux)
 		logger.Info("접수 모드 = 동기(즉시 순번)")

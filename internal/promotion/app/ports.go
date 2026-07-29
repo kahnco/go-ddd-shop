@@ -30,6 +30,11 @@ type Repository interface {
 	// EntryOf 는 사용자의 현재 응모 상태를 조회한다(큐 모드의 상태 확인용).
 	// 아직 응모가 기록되지 않았으면 found=false.
 	EntryOf(ctx context.Context, eventID, userID string) (res Result, found bool, err error)
+
+	// MarkClosed 는 당첨이 확정된 이벤트를 종료 처리한다(멱등).
+	// 이번 호출로 처음 종료됐으면 closedNow=true 이고, EventClosed 를 아웃박스에 적재한다.
+	// 이미 종료됐거나 아직 당첨자가 없으면 closedNow=false.
+	MarkClosed(ctx context.Context, eventID string) (closedNow bool, err error)
 }
 
 // EntryQueue 는 응모 요청을 브로커로 흘려보내는 포트(큐 완충 모드).

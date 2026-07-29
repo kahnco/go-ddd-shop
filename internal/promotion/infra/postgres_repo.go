@@ -41,7 +41,8 @@ CREATE TABLE IF NOT EXISTS promotion_event (
     event_id       TEXT PRIMARY KEY,
     target_seq     INT  NOT NULL,
     starts_at      TIMESTAMPTZ NOT NULL,
-    winner_user_id TEXT
+    winner_user_id TEXT,
+    closed_at      TIMESTAMPTZ
 );
 CREATE TABLE IF NOT EXISTS promotion_counter (
     event_id TEXT PRIMARY KEY,
@@ -112,12 +113,13 @@ func (r *PostgresRepo) Enter(ctx context.Context, eventID, userID string, now ti
 	}
 	defer tx.Rollback(ctx)
 
-	// 이벤트 로드(당첨 순번·시작 시각).
+	// 이벤트 로드(당첨 순번·시작 시각·종료 여부).
 	var target int
 	var startsAt time.Time
+	var closedAt *time.Time
 	err = tx.QueryRow(ctx,
-		`SELECT target_seq, starts_at FROM promotion_event WHERE event_id=$1`, eventID).
-		Scan(&target, &startsAt)
+		`SELECT target_seq, starts_at, closed_at FROM promotion_event WHERE event_id=$1`, eventID).
+		Scan(&target, &startsAt, &closedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return app.Result{}, domain.ErrEventNotFound
 	}
@@ -126,6 +128,9 @@ func (r *PostgresRepo) Enter(ctx context.Context, eventID, userID string, now ti
 	}
 	if now.Before(startsAt) {
 		return app.Result{}, domain.ErrNotStarted // 롤백 → 순번 미소비
+	}
+	if closedAt != nil {
+		return app.Result{}, domain.ErrClosed
 	}
 
 	// 멱등: 이미 응모했으면 기존 순번(순번 미소비).
@@ -198,6 +203,49 @@ func (r *PostgresRepo) Enter(ctx context.Context, eventID, userID string, now ti
 		return app.Result{}, err
 	}
 	return app.Result{Seq: next, Winner: winner, Already: false}, nil
+}
+
+// MarkClosed 는 당첨이 확정된 이벤트를 종료 처리한다(멱등). 처음 종료 시 EventClosed 를
+// 아웃박스에 같은 트랜잭션으로 적재한다. closed_at IS NULL + 당첨자 존재일 때만 종료된다.
+func (r *PostgresRepo) MarkClosed(ctx context.Context, eventID string) (bool, error) {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback(ctx)
+
+	var winner string
+	err = tx.QueryRow(ctx,
+		`UPDATE promotion_event SET closed_at = now()
+		  WHERE event_id=$1 AND closed_at IS NULL AND winner_user_id IS NOT NULL
+		  RETURNING winner_user_id`, eventID).Scan(&winner)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil // 이미 종료됐거나 아직 당첨자 없음
+	}
+	if err != nil {
+		return false, err
+	}
+
+	var total int
+	if err := tx.QueryRow(ctx, `SELECT cnt FROM promotion_counter WHERE event_id=$1`, eventID).Scan(&total); err != nil {
+		return false, err
+	}
+
+	evt := domain.EventClosed{EventID: eventID, WinnerUserID: winner, TotalEntries: total}
+	payload, err := json.Marshal(evt)
+	if err != nil {
+		return false, err
+	}
+	if _, err := tx.Exec(ctx,
+		`INSERT INTO promotion_outbox (subject, event_name, payload, dedup_id)
+		 VALUES ($1,$2,$3,$4) ON CONFLICT (dedup_id) DO NOTHING`,
+		"promotion."+evt.EventName(), evt.EventName(), payload, evt.DedupID()); err != nil {
+		return false, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 // EntryOf 는 사용자의 응모 상태를 조회한다(큐 모드의 상태 확인용).

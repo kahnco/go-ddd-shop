@@ -18,7 +18,8 @@ type MemoryRepo struct {
 	events  map[string]domain.Event
 	count   map[string]int    // eventID -> 지금까지 배정된 최대 순번(빈틈 없음)
 	entries map[string]int    // "eventID|userID" -> 배정된 순번
-	winner  map[string]string // eventID -> 당첨 userID
+	winner  map[string]string   // eventID -> 당첨 userID
+	closed  map[string]struct{} // eventID -> 종료됨
 	outbox  []OutboxMessage
 	seen    map[string]struct{} // 아웃박스 dedup_id 중복 방지
 	nextID  int64
@@ -30,6 +31,7 @@ func NewMemoryRepo() *MemoryRepo {
 		count:   map[string]int{},
 		entries: map[string]int{},
 		winner:  map[string]string{},
+		closed:  map[string]struct{}{},
 		seen:    map[string]struct{}{},
 	}
 }
@@ -54,6 +56,9 @@ func (r *MemoryRepo) Enter(_ context.Context, eventID, userID string, now time.T
 	if now.Before(ev.StartsAt) {
 		return app.Result{}, domain.ErrNotStarted
 	}
+	if _, done := r.closed[eventID]; done {
+		return app.Result{}, domain.ErrClosed
+	}
 
 	// 멱등: 이미 응모한 사용자면 기존 순번을 그대로(순번 미소비).
 	if seq, done := r.entries[entryKey(eventID, userID)]; done {
@@ -76,6 +81,42 @@ func (r *MemoryRepo) Enter(_ context.Context, eventID, userID string, now time.T
 // enqueueWinner 는 당첨 이벤트를 아웃박스에 적재한다(뮤텍스 아래 = Enter 와 같은 임계구역).
 func (r *MemoryRepo) enqueueWinner(eventID, userID string, seq int, now time.Time) {
 	evt := domain.WinnerDetermined{EventID: eventID, UserID: userID, Seq: seq, DeterminedAt: now}
+	if _, dup := r.seen[evt.DedupID()]; dup {
+		return
+	}
+	payload, _ := json.Marshal(evt)
+	r.nextID++
+	r.outbox = append(r.outbox, OutboxMessage{
+		ID:        r.nextID,
+		Subject:   "promotion." + evt.EventName(),
+		EventName: evt.EventName(),
+		Payload:   payload,
+		DedupID:   evt.DedupID(),
+	})
+	r.seen[evt.DedupID()] = struct{}{}
+}
+
+// MarkClosed 는 당첨이 확정된 이벤트를 종료 처리한다(멱등). 처음 종료 시 EventClosed 적재.
+func (r *MemoryRepo) MarkClosed(_ context.Context, eventID string) (bool, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if _, ok := r.events[eventID]; !ok {
+		return false, domain.ErrEventNotFound
+	}
+	if _, done := r.closed[eventID]; done {
+		return false, nil // 이미 종료
+	}
+	winner, hasWinner := r.winner[eventID]
+	if !hasWinner {
+		return false, nil // 아직 당첨자 없음 → 종료하지 않음
+	}
+	r.closed[eventID] = struct{}{}
+	r.enqueueClosed(eventID, winner, r.count[eventID])
+	return true, nil
+}
+
+func (r *MemoryRepo) enqueueClosed(eventID, winner string, total int) {
+	evt := domain.EventClosed{EventID: eventID, WinnerUserID: winner, TotalEntries: total, ClosedAt: time.Time{}}
 	if _, dup := r.seen[evt.DedupID()]; dup {
 		return
 	}
