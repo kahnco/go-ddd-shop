@@ -9,6 +9,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/redis/go-redis/v9"
+
 	"github.com/kahnco/go-ddd-shop/internal/platform/eventbus"
 	"github.com/kahnco/go-ddd-shop/internal/platform/ratelimit"
 	"github.com/kahnco/go-ddd-shop/internal/platform/telemetry"
@@ -76,12 +78,27 @@ func main() {
 	go relay.Run(ctx)
 
 	// 레이트 리밋 — 사용자(X-User-Id) 우선, 없으면 IP. 버스트/속도는 환경변수로.
-	rl := ratelimit.New(atoiOr(os.Getenv("RATE_BURST"), 5), float64(atoiOr(os.Getenv("RATE_PER_SEC"), 2)))
+	// REDIS_URL 이 있으면 Redis 분산 리밋(여러 replica 공유), 없으면 인메모리(단일 인스턴스).
+	burst := atoiOr(os.Getenv("RATE_BURST"), 5)
+	perSec := float64(atoiOr(os.Getenv("RATE_PER_SEC"), 2))
 	rateKey := func(r *http.Request) string {
 		if u := r.Header.Get("X-User-Id"); u != "" {
 			return u
 		}
 		return ratelimit.ClientIP(r)
+	}
+	var rateMiddleware func(http.Handler) http.Handler
+	if redisURL := os.Getenv("REDIS_URL"); redisURL != "" {
+		opt, err := redis.ParseURL(redisURL)
+		if err != nil {
+			logger.Error("REDIS_URL 파싱 실패", "err", err)
+			os.Exit(1)
+		}
+		rateMiddleware = ratelimit.NewRedis(redis.NewClient(opt), burst, perSec).Middleware(rateKey)
+		logger.Info("레이트 리밋 = Redis 분산", "url", redisURL)
+	} else {
+		rateMiddleware = ratelimit.New(burst, perSec).Middleware(rateKey)
+		logger.Info("레이트 리밋 = 인메모리(단일 인스턴스)")
 	}
 
 	mux := http.NewServeMux()
@@ -89,20 +106,21 @@ func main() {
 	// 접수 모드 — 동기(기본) 또는 큐 완충.
 	entryMux := http.NewServeMux()
 	if envOr("INGEST", "sync") == "queue" {
-		queue := infra.NewNatsEntryQueue(bus)
-		infra.NewQueuedEntryHandler(queue).Register(entryMux)
-		consumer := infra.NewEntryRequestedConsumer(svc, logger)
+		hub := infra.NewHub()
+		infra.NewQueuedEntryHandler(infra.NewNatsEntryQueue(bus)).Register(entryMux)
+		consumer := infra.NewEntryRequestedConsumer(svc, logger).WithHub(hub)
 		if err := bus.Subscribe(infra.EntryRequestedSubject, "promotion", consumer.Handle); err != nil {
 			logger.Error("entry_requested 구독 실패", "err", err)
 			os.Exit(1)
 		}
-		logger.Info("접수 모드 = 큐 완충(202 접수 → 순차 배정)")
+		infra.NewSSEHandler(svc, hub).Register(mux) // GET …/entries/me/stream — 결과 실시간 push
+		logger.Info("접수 모드 = 큐 완충(202 접수 → 순차 배정 → SSE push)")
 	} else {
 		infra.NewEntryHandler(svc).Register(entryMux)
 		logger.Info("접수 모드 = 동기(즉시 순번)")
 	}
 	// POST 응모에만 레이트 리밋을 씌운다.
-	mux.Handle("POST /events/{eventId}/entries", rl.Middleware(rateKey)(entryMux))
+	mux.Handle("POST /events/{eventId}/entries", rateMiddleware(entryMux))
 
 	// 상태 조회(큐 모드에서 결과 확인) — 레이트 리밋 없이.
 	infra.NewStatusHandler(svc).Register(mux)

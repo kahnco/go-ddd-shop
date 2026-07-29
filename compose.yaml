@@ -10,6 +10,11 @@ services:
       - "8222:8222" # 모니터링(http://localhost:8222)
     command: ["-js", "--http_port", "8222"]
 
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379" # promotion 분산 레이트 리밋 공유 저장소
+
   jaeger:
     image: jaegertracing/all-in-one:1.60
     environment:
@@ -73,10 +78,13 @@ services:
       OTEL_EXPORTER_OTLP_ENDPOINT: jaeger:4317
       EVENT_ID: launch-2026
       EVENT_TARGET: "1000" # 정확히 1000번째 응모자 당첨
+      INGEST: queue # 큐 완충 접수(202 → 순차 배정 → SSE push)
+      REDIS_URL: redis://redis:6379 # 분산 레이트 리밋
     ports:
-      - "8089:8080" # POST /events/{eventId}/entries
+      - "8089:8080" # POST /events/{id}/entries · GET …/me · GET …/me/stream
     depends_on:
       - nats
+      - redis
 
   payment:
     build:

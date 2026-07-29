@@ -54,11 +54,18 @@ var _ app.EntryQueue = (*NatsEntryQueue)(nil)
 type EntryRequestedConsumer struct {
 	svc   *app.Service
 	guard *idempotency.Guard
+	hub   *Hub // 선택 — 있으면 배정 결과를 SSE 로 push
 	log   *slog.Logger
 }
 
 func NewEntryRequestedConsumer(svc *app.Service, log *slog.Logger) *EntryRequestedConsumer {
 	return &EntryRequestedConsumer{svc: svc, guard: idempotency.NewGuard(), log: log}
+}
+
+// WithHub 는 처리 결과를 실시간으로 밀어 줄 SSE 허브를 연결한다.
+func (c *EntryRequestedConsumer) WithHub(h *Hub) *EntryRequestedConsumer {
+	c.hub = h
+	return c
 }
 
 func (c *EntryRequestedConsumer) Handle(env eventbus.Envelope) error {
@@ -73,6 +80,9 @@ func (c *EntryRequestedConsumer) Handle(env eventbus.Envelope) error {
 		if err != nil {
 			c.log.Error("응모 처리 실패", "event", p.EventID, "user", p.UserID, "err", err)
 			return err
+		}
+		if c.hub != nil {
+			c.hub.NotifyEntry(p.EventID, p.UserID, res) // 배정 결과를 사용자 스트림으로 push
 		}
 		if res.Winner && !res.Already {
 			c.log.Info("당첨 확정", "event", p.EventID, "user", p.UserID, "seq", res.Seq)
