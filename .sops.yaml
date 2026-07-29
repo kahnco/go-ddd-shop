@@ -1,0 +1,10 @@
+# SOPS 규칙 — deploy/k8s/secrets.*.enc.yaml 을 age 로 암호화한다.
+# encrypted_regex 로 값(data/stringData)만 암호화하고, kind·metadata 같은 구조는
+# 평문으로 두어 git diff·리뷰가 가능하게 한다.
+#
+# age 개인키(deploy/sops/age.key)는 절대 커밋하지 않는다(.gitignore). 공개 recipient 만 여기 둔다.
+# 실서비스에서는 이 recipient 를 KMS/조직 키로 바꾸고, 개인키는 볼트·키체인에서 주입한다.
+creation_rules:
+  - path_regex: deploy/k8s/secrets.*\.enc\.yaml$
+    encrypted_regex: ^(data|stringData)$
+    age: age1pdvh2f5j8wqyq5jaj2ry9g3ue7fcu2x4vr635ylplqahrq2ntd2s8kta7l

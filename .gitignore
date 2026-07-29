@@ -26,3 +26,9 @@ go.work.sum
 
 # 로컬 도구 산출물
 /tmp/
+
+# 시크릿 관리(SOPS+age) — 개인키·복호화 산출물은 절대 커밋하지 않는다.
+deploy/sops/age.key
+deploy/sops/*.key
+deploy/k8s/secrets.filled.yaml
+deploy/k8s/secrets.dec.yaml
