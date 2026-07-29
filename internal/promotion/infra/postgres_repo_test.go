@@ -138,7 +138,7 @@ func TestPostgres_당첨이_아웃박스에_적재되고_한번_디스패치된�
 		t.Fatalf("SeedEvent: %v", err)
 	}
 	_, _ = repo.Enter(ctx, "ev", "alice", time.Now()) // seq 1
-	r, _ := repo.Enter(ctx, "ev", "bob", time.Now())   // seq 2 = 당첨
+	r, _ := repo.Enter(ctx, "ev", "bob", time.Now())  // seq 2 = 당첨
 	if !r.Winner {
 		t.Fatalf("bob 는 당첨이어야")
 	}

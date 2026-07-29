@@ -16,8 +16,8 @@ import (
 type MemoryRepo struct {
 	mu      sync.Mutex
 	events  map[string]domain.Event
-	count   map[string]int    // eventID -> 지금까지 배정된 최대 순번(빈틈 없음)
-	entries map[string]int    // "eventID|userID" -> 배정된 순번
+	count   map[string]int      // eventID -> 지금까지 배정된 최대 순번(빈틈 없음)
+	entries map[string]int      // "eventID|userID" -> 배정된 순번
 	winner  map[string]string   // eventID -> 당첨 userID
 	closed  map[string]struct{} // eventID -> 종료됨
 	outbox  []OutboxMessage

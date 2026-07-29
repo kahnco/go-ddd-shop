@@ -80,8 +80,8 @@ CREATE TABLE IF NOT EXISTS promotion_outbox (
 	return nil
 }
 
-func (r *PostgresRepo) Close()                          { r.pool.Close() }
-func (r *PostgresRepo) Ping(ctx context.Context) error  { return r.pool.Ping(ctx) }
+func (r *PostgresRepo) Close()                         { r.pool.Close() }
+func (r *PostgresRepo) Ping(ctx context.Context) error { return r.pool.Ping(ctx) }
 
 func (r *PostgresRepo) SeedEvent(ctx context.Context, e domain.Event) error {
 	tx, err := r.pool.Begin(ctx)
